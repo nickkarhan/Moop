@@ -17,6 +17,19 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 1.32 — Today trends stay within their window (Mac)
+
+- **Fixed (Mac): Today metric sparklines could draw all-history data under a "14-day trend" label**
+  (PR #49, by rr-allin). `sparkValues` fell back to the entire series when the trailing window had
+  <2 points, so a stale import rendered months-old points as a current trend. It now returns only
+  `trailingWindow(all, days:).map(\.value)` — strictly within the window. A consequence (intended):
+  `latestString` reads `.last` of this windowed series, so a metric whose latest reading predates the
+  window shows "—" instead of a stale value — same anti-stale spirit as the #23 trailing-window fix,
+  and weight's generous 90-day window keeps genuinely-recent-but-sparse readings rendering. The
+  `Sparkline` view already handles 0/1 points (empty / single head dot), so no fallback is needed.
+- Android: **already correct** — `remember14` strictly filters to the trailing calendar window with no
+  all-history fallback (handled in the #23 era), so this is a Mac-only fix + lockstep version bump.
+
 ## 1.31 — No HR spike on resume
 
 - **Fixed: heart rate briefly showed a stale ~100 bpm when you reopened the app / returned to Live,

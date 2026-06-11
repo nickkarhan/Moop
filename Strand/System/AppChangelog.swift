@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "1.88"
+    static let currentVersion = "1.89"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,13 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "1.89",
+            title: "Live heart rate lands on today's chart even when the strap's clock is off (Android)",
+            date: "June 2026",
+            items: [
+                "Fixed (Android): if your WHOOP's internal clock was invalid (the same condition that can stop it banking history), live heart rate still streamed and was saved — but it got stamped with the strap's bogus clock, so it landed off-today and the Today 24-hour HR trend read empty even though live HR was working. Live readings are now anchored to your phone's clock as they arrive, so they always land on today's timeline. (#126)",
+            ]),
         Release(
             version: "1.88",
             title: "Smoother Explore charts, and a clearer way to connect a WHOOP 5.0/MG",

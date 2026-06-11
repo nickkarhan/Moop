@@ -1888,12 +1888,21 @@ class WhoopBleClient(
             batchStartedAtMs = System.currentTimeMillis()
             snapshot
         }
-        // Identity clock ref: REALTIME_DATA timestamps are device-epoch, but with device==wall the
-        // offset is a no-op. The dense, authoritative metric stream is the type-47 historical store
-        // (which carries real unix ts); this live path captures live REALTIME_DATA/EVENT/battery.
+        // REALTIME_DATA carries the strap's OWN timestamp, and we can't trust its absolute value: on a
+        // strap whose RTC is invalid (the same bad clock that blocks history banking — #126) it's a
+        // bogus uptime counter, not unix time, so an identity clock (device==wall==now) would stamp live
+        // HR thousands of days off-today, where the 24h HR trend never finds it (live HR shows fine but
+        // the trend reads empty). Live frames are arriving NOW, so anchor the batch's NEWEST realtime
+        // timestamp to wall-clock `now` and let earlier samples fall relative to it. That lands live HR
+        // on today's timeline whatever the strap's clock says, and is a no-op when the clock is already
+        // valid (newest frame ≈ now). The dense, authoritative source is still the type-47 history store.
         val now = (System.currentTimeMillis() / 1000L).toInt()
         val parsed = frames.map { Framing.parseFrame(it, connectedFamily) }
-        val streams: Streams = extractStreams(parsed, deviceClockRef = now, wallClockRef = now)
+        val newestRealtimeTs = parsed.asSequence()
+            .filter { it.ok && it.crcOk != false && it.typeName == "REALTIME_DATA" }
+            .mapNotNull { (it.parsed["timestamp"] as? Number)?.toInt() }
+            .maxOrNull() ?: now
+        val streams: Streams = extractStreams(parsed, deviceClockRef = newestRealtimeTs, wallClockRef = now)
         val batch = StreamPersistence.toBatch(streams)
         if (!batch.isEmpty) {
             try {

@@ -17,6 +17,16 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 1.89 — Live heart rate lands on today's chart even when the strap's clock is off (Android)
+
+- **Fixed (Android):** if your WHOOP's internal clock was invalid (the same condition that can stop it
+  banking history), live heart rate still streamed and was saved — but it got stamped with the strap's
+  bogus clock, so it landed off-today and the **Today 24-hour HR trend read empty** even though live HR
+  was working. Live readings are now anchored to your phone's clock as they arrive, so they always land
+  on today's timeline. (#126)
+
+---
+
 ## 1.88 — Smoother Explore charts, and a clearer way to connect a WHOOP 5.0/MG
 
 - **Fixed (Mac):** the Explore chart no longer flickers or re-animates its line when you move the

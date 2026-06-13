@@ -530,16 +530,17 @@ struct SettingsView: View {
             blurb: "Move all your NOOP data to another machine. Export saves everything — history, sleeps, workouts, settings — to a single file you can copy across; import replaces this Mac's data with a backup."
         ) {
             VStack(alignment: .leading, spacing: 16) {
+                // Three labelled buttons must share a narrow iPhone row without wrapping mid-word
+                // (the labels otherwise broke to one character per line). Equal width + shrink-to-fit
+                // keeps each on a single line. On iPhone the SF Symbol icons were the main space-thief
+                // (~90pt/button) and there's no room for them in a 3-up row, so we drop to icon-less
+                // text there; macOS is wide enough to keep the icons. No trailing Spacer/ProgressView
+                // inside this HStack — either would steal a share of the equal-width row. (#188)
                 HStack(spacing: 12) {
-                    // Three labelled buttons must share a narrow iPhone row without wrapping mid-word
-                    // (the labels otherwise broke to one character per line). Equal width + shrink-to-fit
-                    // keeps each on a single line; the icon stays. (#175)
                     Button {
                         runExport()
                     } label: {
-                        Label("Export…", systemImage: "square.and.arrow.up")
-                            .lineLimit(1).minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity).padding(.horizontal, 6)
+                        backupButtonLabel("Export…", systemImage: "square.and.arrow.up")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(StrandPalette.accent)
@@ -548,9 +549,7 @@ struct SettingsView: View {
                     Button {
                         runImport()
                     } label: {
-                        Label("Import…", systemImage: "square.and.arrow.down")
-                            .lineLimit(1).minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity).padding(.horizontal, 6)
+                        backupButtonLabel("Import…", systemImage: "square.and.arrow.down")
                     }
                     .buttonStyle(.bordered)
                     .tint(StrandPalette.accent)
@@ -559,16 +558,20 @@ struct SettingsView: View {
                     Button {
                         runCsvExport()
                     } label: {
-                        Label("Export CSV…", systemImage: "tablecells")
-                            .lineLimit(1).minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity).padding(.horizontal, 6)
+                        backupButtonLabel("Export CSV…", systemImage: "tablecells")
                     }
                     .buttonStyle(.bordered)
                     .tint(StrandPalette.accent)
                     .disabled(backupBusy)
+                }
 
-                    if backupBusy { ProgressView().controlSize(.small) }
-                    Spacer(minLength: 0)
+                if backupBusy {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Working…")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
                 }
 
                 HStack(alignment: .top, spacing: 10) {
@@ -583,6 +586,21 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    // Equal-width, single-line label for the three Backup buttons. iPhone is too narrow to fit
+    // an icon + text three-up, so it goes icon-less there; macOS keeps the SF Symbol. (#188)
+    @ViewBuilder
+    private func backupButtonLabel(_ title: String, systemImage: String) -> some View {
+        #if os(macOS)
+        Label(title, systemImage: systemImage)
+            .lineLimit(1).minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity).padding(.horizontal, 6)
+        #else
+        Text(title)
+            .lineLimit(1).minimumScaleFactor(0.6)
+            .frame(maxWidth: .infinity).padding(.horizontal, 4)
+        #endif
     }
 
     private func runExport() {
@@ -867,7 +885,9 @@ private struct FormRow<Control: View>: View {
         .environmentObject(model)
         .environmentObject(model.live)
         .environmentObject(model.profile)
-        .frame(width: 720, height: 900)
+        // iPhone-width (402pt) so the narrow Backup row stays in the preview's blast radius —
+        // at 720 the three-up button row had slack and the truncation regression slipped through. (#188)
+        .frame(width: 402, height: 900)
         .background(StrandPalette.surfaceBase)
         .preferredColorScheme(.dark)
 }

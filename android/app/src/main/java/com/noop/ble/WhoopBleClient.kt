@@ -234,6 +234,9 @@ class WhoopBleClient(
         private const val RECONNECT_DELAY_MS = 3_000L
         /** Give up a scan after this long with no strap found, and tell the user why. */
         private const val SCAN_TIMEOUT_MS = 20_000L
+        /** Rotate to the other WHOOP family after this long with no discovery, in case the persisted
+         *  preference went stale after an update/restore. Mirrors macOS scanFallbackDelaySeconds. (PR#195) */
+        private const val SCAN_FALLBACK_DELAY_MS = 8_000L
 
         // MARK: Live-persistence cadence (port of Swift CollectorPolicy.default).
         /** Flush the live buffer after this many frames OR [FLUSH_MAX_INTERVAL_MS], whichever first. */
@@ -259,6 +262,9 @@ class WhoopBleClient(
         private const val WHOOP5_HISTORY_RETRY_DELAY_MS = 700L
         /** Debounce between a committed backfill chunk and the on-device scoring pass it schedules. */
         private const val POST_BACKFILL_ANALYZE_DELAY_MS = 1_500L
+        /** #174: window after the last offload frame/HISTORY_COMPLETE during which a type-0x2F frame is
+         *  treated as trailing-historical, not live. Mirrors macOS deepPacketLiveCooldownSeconds (10s). */
+        private const val DEEP_PACKET_LIVE_COOLDOWN_MS = 10_000L
 
         /** ATT MTU to request on connect. The default 23 caps every notification at 20 payload bytes,
          *  so the historical offload fragments across many notifications (slow, more reassembly). 247
@@ -343,6 +349,28 @@ class WhoopBleClient(
          */
         fun canRequestSync(connected: Boolean, bonded: Boolean, backfilling: Boolean): Boolean =
             connected && bonded && !backfilling
+
+        /**
+         * Pure classification of a COMPLETED (HISTORY_COMPLETE) offload, extracted from exitBackfilling
+         * so it's unit-testable without a live GATT stack. Mirrors Swift
+         * `BLEManager.classifyCompletedOffload`.
+         *  - first  = bankedSensorRecords: the strap handed over real sensor records (decoded this pass
+         *    OR rows persisted) — its clock is banking to flash.
+         *  - second = bankedNothing (#77/#120/#214): the offload completed but banked NO sensor records,
+         *    in EITHER shape — console-only across ≥3 diagnostic chunks, OR a near-empty metadata-only
+         *    completion (zero rows persisted) with fewer than 3 console frames. The #214 broadening is
+         *    the `rowsPersisted == 0` arm; before it a metadata-only completion slipped through silently.
+         *    The sustained-streak gate (EmptySyncTracker) still decides whether the banner fires.
+         */
+        fun classifyCompletedOffload(
+            decodedChunks: Int,
+            consoleChunks: Int,
+            rowsPersisted: Int,
+        ): Pair<Boolean, Boolean> {
+            val bankedSensorRecords = decodedChunks > 0 || rowsPersisted > 0
+            val bankedNothing = !bankedSensorRecords && (consoleChunks >= 3 || rowsPersisted == 0)
+            return Pair(bankedSensorRecords, bankedNothing)
+        }
 
         /**
          * Newest plausible-unix marker in a GET_DATA_RANGE response = the strap's newest stored
@@ -449,6 +477,18 @@ class WhoopBleClient(
                     "official WHOOP app isn't connected to it (a strap will only pair with one app " +
                     "at a time). Then tap Connect again.",
             )
+        }
+    }
+
+    /** Fired after [SCAN_FALLBACK_DELAY_MS] of a service-filtered scan with no discovery: rotate to the
+     *  other WHOOP family in case the persisted preference is stale (after an update/restore). Cancelled
+     *  on discovery/connect. Mirrors macOS BLEManager scanFallbackWorkItem. (PR#195) */
+    private val scanFallbackRunnable = Runnable {
+        if (scanning && !_state.value.connected) {
+            val fallback = selectedModel.fallbackScanModel
+            log("No ${selectedModel.displayName} found yet — trying ${fallback.displayName}")
+            stopScan()   // clears the scanning flag + the LE scan; startScan re-arms both
+            startScan(fallback, allowFallback = true)
         }
     }
 
@@ -574,6 +614,11 @@ class WhoopBleClient(
     /** Genuine offload frames seen this session — zero at timeout means the strap never answered
      *  the history request at all (5/MG retry trigger, #78 fork). Main-looper only. */
     private var offloadFramesThisSession = 0
+    /** #174 deep-packet cooldown: wall time (ms) of the most recent offload frame OR HISTORY_COMPLETE.
+     *  A type-0x2F arriving just after a backfill ends (backfilling already flipped false) is a TRAILING
+     *  historical frame, not the live R22 stream, so it must not be counted as a "live deep packet".
+     *  0 = no offload reference yet this session. Mirrors macOS BLEManager.lastOffloadFrameAt. */
+    private var lastOffloadFrameAtMs = 0L
     /** One-shot per session: SEND_HISTORICAL_DATA already fired (gate + fail-open can both call). */
     private var historicalKickSent = false
     /** 5/MG zero-frame retries used this CONNECTION (max 2 — then the 900s periodic timer owns it). */
@@ -710,9 +755,27 @@ class WhoopBleClient(
                 return
             }
         }
-        // Filter to the strap the user picked — a single service, so a WHOOP 4.0
-        // scan never lingers on a WHOOP 5/MG wrist (or the reverse). The user
-        // chooses the model before this runs.
+        startScan(model, allowFallback = true)
+    }
+
+    /**
+     * Start a service-filtered scan for [model], re-framing for its family so a fallback rotation
+     * decodes the strap it actually finds. When [allowFallback] is true, schedule a one-shot rotation
+     * to the other WHOOP family after [SCAN_FALLBACK_DELAY_MS] of no discovery — recovers reconnect
+     * when the persisted preference is stale after an update/restore. Discovery/connect cancels both
+     * the fallback and the not-found timeout. Port of macOS BLEManager.startScan(for:allowFallback:).
+     */
+    @SuppressLint("MissingPermission")
+    private fun startScan(model: WhoopModel, allowFallback: Boolean) {
+        handler.removeCallbacks(scanFallbackRunnable)
+        selectedModel = model
+        val sc = scanner ?: run {
+            log("No BLE scanner available")
+            _state.value = _state.value.copy(scanning = false, statusNote = "Bluetooth isn't ready yet. Try again in a moment.")
+            return
+        }
+        // Filter to the strap we're targeting — a single service, so a WHOOP 4.0
+        // scan never lingers on a WHOOP 5/MG wrist (or the reverse).
         val filters = listOf(
             ScanFilter.Builder().setServiceUuid(ParcelUuid(model.service)).build(),
         )
@@ -744,6 +807,10 @@ class WhoopBleClient(
         // Stop and explain if nothing turns up in time.
         handler.removeCallbacks(scanTimeoutRunnable)
         handler.postDelayed(scanTimeoutRunnable, SCAN_TIMEOUT_MS)
+        // Before the hard timeout, try the other family once in case the family preference is stale.
+        if (allowFallback) {
+            handler.postDelayed(scanFallbackRunnable, SCAN_FALLBACK_DELAY_MS)
+        }
     }
 
     /**
@@ -919,7 +986,7 @@ class WhoopBleClient(
             log("Alarm: armed 5/MG rev4 EXPERIMENTAL (epoch $epochSec)")
             return
         }
-        send(CommandNumber.SET_CLOCK, setClockPayload())
+        sendSetClockBothForms()
         val e = epochSec.toInt()
         val payload = byteArrayOf(
             0x01,
@@ -950,8 +1017,22 @@ class WhoopBleClient(
     // MARK: Scanning
     // ====================================================================================
 
+    /** Persist the WHOOP family that actually advertised so a later launch/scan starts on the right
+     *  service — what makes a one-time fallback rotation stick. Mirrors macOS
+     *  `UserDefaults.set(rawValue, forKey: "selectedWhoopModel")`. Self-contained in the shared
+     *  noop_prefs store; failures are non-fatal (the rotation still worked this session). (PR#195) */
+    private fun persistSelectedModel(model: WhoopModel) {
+        try {
+            context.getSharedPreferences("noop_prefs", Context.MODE_PRIVATE)
+                .edit().putString("noop.selectedWhoopModel", model.name).apply()
+        } catch (t: Throwable) {
+            log("Couldn't persist selected model: ${t.message}")
+        }
+    }
+
     @SuppressLint("MissingPermission")
     private fun stopScan() {
+        handler.removeCallbacks(scanFallbackRunnable)
         if (!scanning) return
         scanning = false
         try {
@@ -968,8 +1049,13 @@ class WhoopBleClient(
             val device: BluetoothDevice = result.device
             val name = result.scanRecord?.deviceName ?: device.name ?: "unknown"
             log("Discovered $name (rssi ${result.rssi}) — connecting")
-            // Found it: cancel the not-found timeout and reflect progress in the UI.
+            // Found it: cancel the not-found timeout AND the family-rotation fallback, then reflect
+            // progress in the UI. (PR#195)
             handler.removeCallbacks(scanTimeoutRunnable)
+            handler.removeCallbacks(scanFallbackRunnable)
+            // Persist the family that actually advertised so the next scan starts on the right service —
+            // this is what makes a one-time rotation stick after a stale-preference reconnect. (PR#195)
+            persistSelectedModel(selectedModel)
             _state.value = _state.value.copy(statusNote = "Found $name, connecting…")
             // Port of didDiscover: stop scanning, then connect to this peripheral.
             stopScan()
@@ -1327,6 +1413,12 @@ class WhoopBleClient(
      * (1) A COMMAND_RESPONSE (type 0x24) to a SET_CONFIG (0x78) = the strap ACKing one enable_r22 flag.
      * (2) A type-0x2F record OUTSIDE a history offload = the R22 deep biometric stream flowing live.
      * 5/MG puffin layout: packet_type @ byte 8, the responded-to cmd @ byte 10.
+     *
+     * #174 cooldown: when an offload ENDS, the strap can keep flushing a few trailing type-0x2F records
+     * AFTER `backfilling` has already flipped false. Those are tail-end HISTORY, not live — counting
+     * them as "live deep packets" was a false positive. So we stamp [lastOffloadFrameAtMs] on every
+     * offload frame (and at HISTORY_COMPLETE) and refuse to count a non-offload 0x2F as live within
+     * [DEEP_PACKET_LIVE_COOLDOWN_MS] of it. The flag-ACK counting (1) is unchanged.
      */
     private fun noteWhoop5R22Telemetry(frame: ByteArray, duringOffload: Boolean) {
         if (frame.size <= 10) return
@@ -1337,7 +1429,20 @@ class WhoopBleClient(
             val total = Whoop5Config.enableR22Sequence.size
             if (n == total) log("Deep-data: strap ACCEPTED all $n/$total R22 flags ✓ — keep it on; watching for deep packets.")
         }
-        if (type == 0x2F && !duringOffload) {
+        if (type == 0x2F) {
+            if (duringOffload) {
+                // Trailing-history reference point: a 0x2F during the offload is banked history. Remember
+                // when it landed so the cooldown below can discount the few that dribble in after the end.
+                lastOffloadFrameAtMs = System.currentTimeMillis()
+                return
+            }
+            // Cooldown guard: a 0x2F within DEEP_PACKET_LIVE_COOLDOWN_MS of the last offload
+            // frame/HISTORY_COMPLETE is a trailing historical record, not the live R22 stream.
+            if (lastOffloadFrameAtMs != 0L &&
+                System.currentTimeMillis() - lastOffloadFrameAtMs < DEEP_PACKET_LIVE_COOLDOWN_MS
+            ) {
+                return
+            }
             val n = _state.value.deepPacketsThisSession + 1
             _state.value = _state.value.copy(deepPacketsThisSession = n)
             if (n == 1) log("Deep-data: 🎯 FIRST live deep (R22, type-0x2F) packet received — please keep wearing it and share your strap log on #174.")
@@ -1551,8 +1656,12 @@ class WhoopBleClient(
      */
     private fun runConnectHandshake() {
         send(CommandNumber.GET_HELLO_HARVARD)
-        send(CommandNumber.SET_CLOCK, setClockPayload())
-        send(CommandNumber.GET_CLOCK, byteArrayOf())               // strap expects an EMPTY payload
+        sendSetClockBothForms()
+        // GET_CLOCK's payload length is firmware-specific, exactly like SET_CLOCK's: newer firmware
+        // answers the EMPTY form and ignores [0x00], while fw 41.17.x answers [0x00] and ignores the
+        // empty form (#120). Send both — the strap answers whichever its firmware accepts.
+        send(CommandNumber.GET_CLOCK, byteArrayOf())               // empty form (newer firmware)
+        send(CommandNumber.GET_CLOCK, byteArrayOf(0))              // [0x00] form (fw 41.17.x, #120)
         send(CommandNumber.SEND_R10_R11_REALTIME, byteArrayOf(0))  // stop the type-43 realtime flood
         send(CommandNumber.GET_DATA_RANGE)                          // refresh stored range
         log("Connect handshake sent (hello/set-clock/get-clock/stop-raw/get-range)")
@@ -1746,10 +1855,13 @@ class WhoopBleClient(
 
     /**
      * SET_CLOCK(10) payload = the strap's 8-byte form: [seconds u32 LE][subseconds u32 LE].
-     * Port of `BLEManager.setClockPayload`. A wrong-length SET_CLOCK is ack'd but NOT latched.
+     * Port of `BLEManager.setClockPayload`. The payload LENGTH is firmware-specific: newer WHOOP 4
+     * firmware latches this form, but fw 41.17.x ignores it (no COMMAND_RESPONSE, RTC unchanged) and
+     * latches only the legacy 9-byte form below. A strap that misses the set keeps an invalid RTC and
+     * stops banking sensor data to flash, surfacing as endless console-only syncs (#120). Send WHOOP 4
+     * through [sendSetClockBothForms] so either firmware latches.
      */
-    private fun setClockPayload(): ByteArray {
-        val now = (System.currentTimeMillis() / 1000L)
+    private fun setClockPayload(now: Long = System.currentTimeMillis() / 1000L): ByteArray {
         return byteArrayOf(
             (now and 0xFF).toByte(),
             ((now shr 8) and 0xFF).toByte(),
@@ -1757,6 +1869,37 @@ class WhoopBleClient(
             ((now shr 24) and 0xFF).toByte(),
             0, 0, 0, 0,
         )
+    }
+
+    /**
+     * SET_CLOCK(10) payload — the legacy 9-byte form `[seconds u32 LE][5 zero]` required by WHOOP 4
+     * fw 41.17.x, which ignores the 8-byte form. Port of `BLEManager.setClockPayloadLegacy`. On a
+     * strap whose RTC was stuck in the past, the 8-byte form drew no response while the 9-byte form was
+     * ack'd, latched, and resumed flash banking (#120). On newer firmware this form is ack'd but NOT
+     * latched, so it's a no-op there — both forms carry the same seconds.
+     */
+    private fun setClockPayloadLegacy(now: Long = System.currentTimeMillis() / 1000L): ByteArray {
+        return byteArrayOf(
+            (now and 0xFF).toByte(),
+            ((now shr 8) and 0xFF).toByte(),
+            ((now shr 16) and 0xFF).toByte(),
+            ((now shr 24) and 0xFF).toByte(),
+            0, 0, 0, 0, 0,
+        )
+    }
+
+    /**
+     * Send SET_CLOCK in every payload form the WHOOP 4 firmware family is known to accept (8-byte for
+     * newer firmware, 9-byte for 41.17.x — each a no-op on the other). Both carry the same `now`, so
+     * double-latching is harmless. WHOOP 5/MG keeps its single hardware-validated 8-byte send, so the
+     * legacy form is gated to WHOOP 4. Port of `BLEManager.sendSetClockBothForms`. (#120)
+     */
+    private fun sendSetClockBothForms(withResponse: Boolean = false) {
+        val now = System.currentTimeMillis() / 1000L
+        send(CommandNumber.SET_CLOCK, setClockPayload(now), withResponse = withResponse)
+        if (selectedModel == WhoopModel.WHOOP4) {
+            send(CommandNumber.SET_CLOCK, setClockPayloadLegacy(now), withResponse = withResponse)
+        }
     }
 
     // ====================================================================================
@@ -2244,35 +2387,52 @@ class WhoopBleClient(
     private fun exitBackfilling(reason: String) {
         if (!backfilling) return
         backfilling = false
+        // #174: a backfill just ended. Start (or extend) the deep-packet cooldown from this instant so
+        // any type-0x2F records the strap flushes in the seconds after the session aren't miscounted as
+        // the live R22 stream — they're the offload's tail.
+        lastOffloadFrameAtMs = System.currentTimeMillis()
         // Record an honest sync outcome so a cloud-free user can tell sync is working (or stuck):
         // HISTORY_COMPLETE stamps lastSyncAt + clears any error; an idle-watchdog timeout surfaces a
         // non-silent error. A plain disconnect mid-sync leaves both as-is (not a failure — the next
         // connect re-offloads). The freshly-published count is preserved as the progress read. (PR #85)
         val nowSec = System.currentTimeMillis() / 1000L
-        // #77 family: a sync that COMPLETED but banked no sensor records across many console-only
-        // chunks ⇒ the strap isn't saving to flash (its RTC lost sync). Surface the actionable fix
-        // instead of a silent "synced". A caught-up strap (few/no console chunks) doesn't trip this.
-        val emptyBanking = reason == "HISTORY_COMPLETE" &&
-            decodedChunksThisSession == 0 && consoleChunksThisSession >= 3
+        // #77 / #214 family: a sync that COMPLETED but banked NO sensor records ⇒ the strap isn't
+        // saving to flash (its RTC lost sync). Surface the actionable fix instead of a silent "synced".
+        // The signal had ONE shape — console-only across ≥3 chunks — so a NEAR-EMPTY completion
+        // (metadata-only ENDs, zero rows persisted, FEWER than 3 console frames) slipped through to the
+        // silent branch (#214). Broaden it: a HISTORY_COMPLETE that decoded nothing AND persisted ZERO
+        // sensor rows is ALSO "banked nothing", regardless of console-frame count. The #126 guard is
+        // unchanged — the banner still only fires once SUSTAINED — so a genuinely caught-up strap that
+        // banked rows on an earlier cycle won't trip it.
+        val (bankedSensorRecords, bankedNothingRaw) = classifyCompletedOffload(
+            decodedChunks = decodedChunksThisSession,
+            consoleChunks = consoleChunksThisSession,
+            rowsPersisted = backfiller.sessionRowsPersisted,
+        )
+        val bankedNothing = reason == "HISTORY_COMPLETE" && bankedNothingRaw
         // #126: only escalate to the clock-lost banner once emptiness is SUSTAINED. A banking cycle (any
-        // decoded records) clears the streak, so a single transient empty cycle on a healthy strap stays
-        // silent. Track on every completed sync so banking cycles reset it.
+        // decoded records / rows persisted) clears the streak, so a single transient empty cycle on a
+        // healthy strap stays silent. Track on every completed sync so banking cycles reset it.
         val sustainedEmpty = if (reason == "HISTORY_COMPLETE")
             emptySyncTracker.recordCompletedSync(
-                bankedSensorRecords = decodedChunksThisSession > 0,
-                consoleOnly = decodedChunksThisSession == 0 && consoleChunksThisSession >= 3,
+                bankedSensorRecords = bankedSensorRecords,
+                consoleOnly = bankedNothingRaw,
             ) else false
-        if (emptyBanking) log(
-            "Backfill: completed but the strap banked no sensor history (console-only across " +
-                "$consoleChunksThisSession chunks); consecutive empty syncs = " +
-                "${emptySyncTracker.consecutiveEmptySyncs}.",
-        )
+        if (bankedNothing) {
+            val detail = if (consoleChunksThisSession >= 3)
+                "console-only across $consoleChunksThisSession chunks"
+            else "metadata-only, 0 sensor rows persisted"
+            log(
+                "Backfill: completed but the strap banked no sensor history ($detail); " +
+                    "consecutive empty syncs = ${emptySyncTracker.consecutiveEmptySyncs}.",
+            )
+        }
         _state.value = when (reason) {
             "HISTORY_COMPLETE" -> _state.value.copy(
                 backfilling = false,
                 syncChunksThisSession = ackedChunksThisSession,
                 lastSyncAt = nowSec,
-                lastSyncError = if (emptyBanking && sustainedEmpty)
+                lastSyncError = if (bankedNothing && sustainedEmpty)
                     "Synced, but your strap had no stored history to hand over — only its diagnostic output. This usually means its clock has lost sync, so it isn't saving data to flash. Fully charge it to 100%, then reconnect, and it should start banking again."
                 else null,
             )
@@ -2421,6 +2581,7 @@ class WhoopBleClient(
         backfillFrameQueue.clear()
         strapNewestTs = null
         offloadFramesThisSession = 0
+        lastOffloadFrameAtMs = 0L   // #174: don't carry a stale cooldown reference into the next session
         historicalKickSent = false
         whoop5HistoryAttempts = 0
         // A mid-offload link drop must still flush the capture file (summary already logged or not —

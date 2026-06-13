@@ -52,6 +52,41 @@ final class PpgHrSampleTests: XCTestCase {
         XCTAssertEqual(buckets[0].bpm, 80.0, accuracy: 0.001)
     }
 
+    /// hrSamples COALESCEs the same way: a measured second wins, a PPG-only second fills the gap,
+    /// and the REAL PPG bpm is ROUND-ed into the `HRSample.bpm` Int domain (70.6 -> 71).
+    func testHrSamplesCoalescesPpgWhereNoMeasuredHr() async throws {
+        let store = try await WhoopStore.inMemory()
+        let dev = "my-whoop"
+        let base = 1_780_000_000
+        try await store.insert(Streams(hr: [HRSample(ts: base, bpm: 90)]), deviceId: dev)
+        try await store.insert(Streams(ppgHr: [
+            PpgHrSample(ts: base, bpm: 60.2, conf: 0.9),     // shadowed by measured 90
+            PpgHrSample(ts: base + 1, bpm: 70.6, conf: 0.9), // fills the gap, ROUND -> 71
+        ]), deviceId: dev)
+
+        let samples = try await store.hrSamples(deviceId: dev, from: base, to: base + 10, limit: 10)
+        XCTAssertEqual(samples, [
+            HRSample(ts: base, bpm: 90),
+            HRSample(ts: base + 1, bpm: 71),
+        ])
+    }
+
+    /// A PPG-only WHOOP 5 night (no measured hrSample rows at all) must still surface HR rows from
+    /// hrSamples — this is what lets such a night clear the night-stager's HR-count gate and be
+    /// scored (#172). Every PPG second is returned because the anti-join finds no measured row to win.
+    func testHrSamplesReturnsPpgRowsForPpgOnlyNight() async throws {
+        let store = try await WhoopStore.inMemory()
+        let dev = "my-whoop"
+        let base = 1_780_000_000
+        let ppg = (0..<300).map { PpgHrSample(ts: base + $0, bpm: 55.0, conf: 0.9) }
+        try await store.insert(Streams(ppgHr: ppg), deviceId: dev)
+
+        let samples = try await store.hrSamples(deviceId: dev, from: base, to: base + 400, limit: 1000)
+        XCTAssertEqual(samples.count, 300)
+        XCTAssertEqual(samples.first, HRSample(ts: base, bpm: 55))
+        XCTAssertEqual(samples.last, HRSample(ts: base + 299, bpm: 55))
+    }
+
     /// With no PPG rows at all, hrBuckets is unchanged from the measured-only behaviour.
     func testHrBucketsUnchangedWithoutPpg() async throws {
         let store = try await WhoopStore.inMemory()

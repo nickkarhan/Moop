@@ -17,6 +17,32 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 2.7.0 — Big fix wave: clock, reconnect, local LLM, Explore, weight and more
+
+A large batch of fixes from reported issues and community contributions.
+
+- **Fixed (WHOOP 4.0):** straps on firmware 41.17.x silently failed to set their clock → no history,
+  no sleep/recovery. NOOP now sends both clock-command formats. Thanks @rad182. (#120)
+- **Fixed:** strap sometimes wouldn't reconnect after an app update — NOOP rotates the scan between
+  WHOOP 4 and 5/MG. Thanks @khalilkm01.
+- **Fixed (AI Coach):** the Custom provider can now reach a local LLM on your LAN (e.g. Ollama at
+  `http://192.168.x.x:11434`), not just `localhost`, on Android and iPhone — cloud providers stay
+  HTTPS-only. Thanks @andreasc1. (#187)
+- **Fixed (iPhone):** the Backup buttons no longer truncate to `Ex…/Im…/E…`. (#188)
+- **Fixed:** the Explore page was empty for WHOOP 5 live-Bluetooth users with no import — it now reads
+  computed daily scores. Thanks @sebastianwoo. (#199)
+- **Fixed:** the Today **Weight** tile uses your Settings weight when Apple Health has none. Thanks
+  @subscriptiondestroyer. (#204)
+- **Fixed (Android):** imported Health Connect workouts now carry distance. Thanks @pilleuspulcher. (#215)
+- **Fixed (WHOOP 5/MG):** PPG-derived HR now feeds the daily scores, so a PPG-only night is scorable.
+  Thanks @khalilkm01. (#212)
+- **Fixed (WHOOP 4.0):** an empty history sync now reliably surfaces the charge-to-100% guidance instead
+  of silently showing nothing. Thanks @alberba. (#214)
+- **Fixed (Mac):** the on-device store stays in the app's sandbox container, with a one-time migration.
+  Thanks @khalilkm01.
+- **Fixed (WHOOP 5/MG):** the experimental deep-data telemetry no longer miscounts a trailing history
+  frame as a live deep packet.
+
 ## 2.6.10 — WHOOP 5/MG deep data: live confirmation it's working
 
 - **New (iPhone & Android, experimental):** the WHOOP 5/MG **deep-data (R22)** section now shows **live

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
@@ -91,6 +92,7 @@ object HealthConnectImporter {
         Vo2MaxRecord::class,
         WeightRecord::class,
         ExerciseSessionRecord::class,
+        DistanceRecord::class,
     )
 
     /**
@@ -288,6 +290,29 @@ object HealthConnectImporter {
                         avgHr = round(sum.toDouble() / n).toInt(),
                         maxHr = max.toInt(),
                     )
+                }
+            }
+
+            // Fill per-workout distance (#215): an ExerciseSessionRecord carries no distance, so
+            // distanceM was stored null and the "(Total) Distance" tile read 0. Sum the DistanceRecord
+            // metres inside each session window — a targeted per-session read, bounded by workout count,
+            // mirroring the HR fill above. readAll swallows a per-session failure / revoked permission
+            // (partial-permissions design, #150), so one bad session can't fail the import. iOS/macOS
+            // already source workout distance from Apple Health; this is the Android-only equivalent.
+            for (i in workouts.indices) {
+                val w = workouts[i]
+                if (w.endTs <= w.startTs) continue
+                var meters = 0.0
+                readAll(
+                    client, DistanceRecord::class,
+                    TimeRangeFilter.between(
+                        Instant.ofEpochSecond(w.startTs), Instant.ofEpochSecond(w.endTs)
+                    ),
+                ) { d ->
+                    meters += d.distance.inMeters
+                }
+                if (meters > 0.0) {
+                    workouts[i] = w.copy(distanceM = round1(meters))
                 }
             }
         } catch (e: Exception) {

@@ -223,6 +223,66 @@ final class Repository: ObservableObject {
         return pts.map { ($0.day, $0.value) }
     }
 
+    /// The Explore read path (#199). Like `series(key:source:)` but, for the strap source
+    /// ("my-whoop"), falls back to the on-device COMPUTED dailies a Bluetooth-only WHOOP 5 user
+    /// has (no CSV/Health import) — so Charge/Rest/Effort/Health metrics still resolve. Three layers,
+    /// imported-wins per day:
+    ///  1. the imported metricSeries under `deviceId` (a real WHOOP export);
+    ///  2. the COMPUTED metricSeries under `computedDeviceId` — for keys written there but absent from
+    ///     the DailyMetric columns (notably `sleep_performance`, IntelligenceEngine's Rest composite);
+    ///  3. the merged daily metrics (`self.days`, imported ∪ computed) for keys with a DailyMetric
+    ///     column — the same key→column map InsightsView.dailyOutcome / Android's dailyPick use,
+    ///     extended to the full daily column set.
+    /// Any OTHER source (apple-health / nutrition-csv / noop-mood) reads only its own series, unchanged.
+    func exploreSeries(key: String, source: String, days: Int = 4000) async -> [(day: String, value: Double)] {
+        guard source == "my-whoop" else { return await series(key: key, source: source, days: days) }
+        guard let store = await ensureStore() else { return [] }
+        let now = Date()
+        let from = Self.dayString(now.addingTimeInterval(-Double(days) * 86_400))
+        let to = Self.dayString(now.addingTimeInterval(86_400))
+
+        // day → value, lowest-priority source first; higher-priority sources overwrite per day so a
+        // real import always wins over the computed strap value.
+        var byDay: [String: Double] = [:]
+
+        // Layer 3 (lowest): merged daily column for keys that have one. `self.days` is the published
+        // imported ∪ computed daily cache (parameter `days` is the lookback window, not this).
+        for d in self.days where byDay[d.day] == nil {
+            if let v = Self.dailyColumn(key: key, day: d) { byDay[d.day] = v }
+        }
+        // Layer 2: computed metricSeries (covers sleep_performance, which has no daily column).
+        let computedPts = (try? await store.metricSeries(deviceId: computedDeviceId, key: key, from: from, to: to)) ?? []
+        for p in computedPts { byDay[p.day] = p.value }
+        // Layer 1 (highest): the imported export's metricSeries.
+        let importedPts = (try? await store.metricSeries(deviceId: deviceId, key: key, from: from, to: to)) ?? []
+        for p in importedPts { byDay[p.day] = p.value }
+
+        return byDay.sorted { $0.key < $1.key }.map { (day: $0.key, value: $0.value) }
+    }
+
+    /// The merged DailyMetric column backing an Explore metric key, for the days the imported/computed
+    /// metricSeries doesn't cover (strap-only WHOOP 5 users). Mirrors InsightsView.dailyOutcome and
+    /// Android's dailyPick, extended to every Explore "my-whoop" key that maps to a daily column.
+    /// Keys with no daily column (avg_hr / max_hr / energy_kcal / sleep_performance / in_bed_min …)
+    /// return nil here — they resolve from metricSeries (or stay genuinely empty).
+    private static func dailyColumn(key: String, day d: DailyMetric) -> Double? {
+        switch key {
+        case "recovery":         return d.recovery
+        case "hrv":              return d.avgHrv
+        case "rhr":              return d.restingHr.map(Double.init)
+        case "strain":           return d.strain
+        case "resp_rate":        return d.respRateBpm
+        case "spo2":             return d.spo2Pct
+        case "skin_temp":        return d.skinTempDevC
+        case "sleep_total_min":  return d.totalSleepMin
+        case "sleep_efficiency": return d.efficiency
+        case "sleep_deep_min":   return d.deepMin
+        case "sleep_rem_min":    return d.remMin
+        case "sleep_light_min":  return d.lightMin
+        default:                 return nil
+        }
+    }
+
     func availableKeys(source: String) async -> [String] {
         guard let store = await ensureStore() else { return [] }
         return (try? await store.metricKeys(deviceId: source)) ?? []

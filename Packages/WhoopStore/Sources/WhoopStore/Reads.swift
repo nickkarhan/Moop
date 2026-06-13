@@ -17,13 +17,30 @@ extension WhoopStore {
     /// thousands of rows; reusing one decoder removes that per-row allocation.
     fileprivate static let eventDecoder = JSONDecoder()
 
+    /// Raw HR samples over `[from, to]`, measured-first with PPG-derived fallback.
+    ///
+    /// COALESCEs the measured `hrSample` with the v26 PPG-derived `ppgHrSample` (#156) using the same
+    /// anti-join as `hrBuckets`: every measured second wins, and any second with NO hrSample row falls
+    /// back to its PPG estimate (never doubling a beat). This keeps the raw read in lockstep with the
+    /// chart path, and lets a PPG-only WHOOP 5 night clear the night-stager's HR-count gate so it is
+    /// scorable (#172). The PPG `bpm` is REAL, so it is ROUND-ed to the `HRSample.bpm` Int domain.
     public func hrSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [HRSample] {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
-                SELECT ts, bpm FROM hrSample
-                WHERE deviceId = ? AND ts >= ? AND ts <= ?
+                SELECT ts, bpm FROM (
+                    SELECT ts, bpm FROM hrSample
+                    WHERE deviceId = ? AND ts >= ? AND ts <= ?
+                    UNION ALL
+                    SELECT p.ts, CAST(ROUND(p.bpm) AS INTEGER) AS bpm FROM ppgHrSample p
+                    WHERE p.deviceId = ? AND p.ts >= ? AND p.ts <= ?
+                      AND NOT EXISTS (
+                        SELECT 1 FROM hrSample h
+                        WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
+                )
                 ORDER BY ts ASC LIMIT ?
-                """, arguments: [deviceId, from, to, limit])
+                """, arguments: [deviceId, from, to,
+                                 deviceId, from, to,
+                                 limit])
                 .map { HRSample(ts: $0["ts"], bpm: $0["bpm"]) }
         }
     }
@@ -156,10 +173,19 @@ extension WhoopStore {
 
     /// Max HR sample timestamp for a device, or nil if there are none. The biometric "data frontier"
     /// used by the stuck-strap watchdog (advances iff the strap is actually logging + offloading).
+    ///
+    /// Coalesces measured `hrSample` with PPG-derived `ppgHrSample` (#156) so a PPG-only offload (a v26
+    /// WHOOP 5 night with no measured HR) still advances the frontier. The two persist in the same
+    /// offload, so this only ever moves the watchdog forward when the strap really logged + offloaded.
     public func latestHRSampleTs(deviceId: String) async throws -> Int? {
         try syncRead { db in
-            try Int.fetchOne(db,
-                sql: "SELECT MAX(ts) FROM hrSample WHERE deviceId = ?", arguments: [deviceId])
+            try Int.fetchOne(db, sql: """
+                SELECT MAX(ts) FROM (
+                    SELECT ts FROM hrSample WHERE deviceId = ?
+                    UNION ALL
+                    SELECT ts FROM ppgHrSample WHERE deviceId = ?
+                )
+                """, arguments: [deviceId, deviceId])
         }
     }
 

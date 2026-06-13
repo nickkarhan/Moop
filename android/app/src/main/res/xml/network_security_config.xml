@@ -1,19 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Cleartext (plain HTTP) is BLOCKED everywhere by default — every public endpoint (the cloud AI
-  providers, anything else) must use HTTPS. The ONLY exception is loopback: the AI Coach's "Custom
-  (OpenAI-compatible)" provider talks to a LOCAL LLM server (Ollama / LM Studio / llama.cpp) at
-  http://localhost / 127.0.0.1, and the emulator reaches the dev host at 10.0.2.2. Those never leave
-  the device/host, so cleartext to them is safe.
+  Cleartext (plain HTTP) is BLOCKED by default — every PUBLIC endpoint (the cloud AI providers,
+  anything else) MUST use HTTPS. base-config keeps cleartextTrafficPermitted="false".
+
+  THE ONE EXCEPTION is a private-network local LLM. The AI Coach's "Custom (OpenAI-compatible)"
+  provider talks to a server the user runs themselves — Ollama / LM Studio / llama.cpp — which is
+  reached over the LAN at http://localhost / 127.0.0.1, the emulator host alias 10.0.2.2, or a
+  private-LAN IP like http://192.168.x.x:11434 (#187). That traffic never leaves the user's own
+  network, so cleartext to it is safe.
+
+  Android's network-security-config matches by hostname/domain and CANNOT express a CIDR range, so
+  it is impossible to scope a domain-config to "192.168.0.0/16". We therefore permit cleartext at
+  the base and rely on a code-level guard — AiCoach.isPrivateLanOrLoopback(host) — to ALLOW http://
+  only to loopback + RFC1918 (10/8, 172.16/12, 192.168/16) + link-local (169.254/16) + *.local, and
+  to REJECT public-internet cleartext with a clear error. The two layers together mean a LAN LLM
+  works while the broadened XML permission can never be abused to send cleartext to the open web.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
-
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">localhost</domain>
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">::1</domain>
-        <!-- Android emulator's alias for the host machine's loopback. -->
-        <domain includeSubdomains="false">10.0.2.2</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

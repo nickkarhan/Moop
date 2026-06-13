@@ -113,7 +113,9 @@ class AiCoach(private val repo: WhoopRepository) {
         val url = when (provider) {
             AiProvider.CUSTOM -> {
                 if (customBaseUrl.isBlank()) return@withContext emptyList()
-                customModelsUrl(customBaseUrl)
+                // Best-effort: a bad/public-cleartext URL just yields no model list here (the chat
+                // path surfaces the precise guard error). Never throw out of fetchModels.
+                runCatching { customModelsUrl(customBaseUrl) }.getOrNull() ?: return@withContext emptyList()
             }
             else -> provider.modelsEndpoint
         }
@@ -290,8 +292,72 @@ class AiCoach(private val repo: WhoopRepository) {
 
     /** Base for the Custom provider — the user's URL with any trailing slashes trimmed. */
     private fun customBase(url: String): String = url.trim().trimEnd('/')
-    private fun customChatUrl(url: String): String = customBase(url) + "/chat/completions"
-    private fun customModelsUrl(url: String): String = customBase(url) + "/models"
+
+    private fun customChatUrl(url: String): String {
+        val base = customBase(url)
+        guardCustomUrl(base)
+        return base + "/chat/completions"
+    }
+
+    private fun customModelsUrl(url: String): String {
+        val base = customBase(url)
+        guardCustomUrl(base)
+        return base + "/models"
+    }
+
+    /**
+     * Gatekeeper for the Custom (local LLM) provider. https:// is always fine. Plain http:// is
+     * only allowed to a PRIVATE-NETWORK host — loopback, RFC1918, link-local, or *.local — because
+     * the app's network-security-config permits cleartext app-wide (Android XML can't scope a
+     * cleartext rule to a CIDR), so THIS check is what actually keeps cleartext off the public
+     * internet (#187). A public http:// host is rejected with a precise, actionable error.
+     */
+    private fun guardCustomUrl(base: String) {
+        val uri = runCatching { java.net.URI(base) }.getOrNull()
+        val host = uri?.host
+        val scheme = uri?.scheme?.lowercase()
+        require(host != null && !scheme.isNullOrBlank()) {
+            "That server URL isn't valid. Use http://<host>:<port> for a local server, or https://… for a remote one."
+        }
+        if (scheme == "https") return
+        require(scheme == "http") {
+            "Unsupported URL scheme \"$scheme\". Use http:// for a local server or https:// for a remote one."
+        }
+        require(isPrivateLanOrLoopback(host)) {
+            "Plain http:// is only allowed to a local-network server (localhost, 10.x, 172.16–31.x, " +
+                "192.168.x, 169.254.x, or a .local name). Use https:// to reach \"$host\"."
+        }
+    }
+
+    /**
+     * True when [host] is on the device's own machine or its private LAN, so plain http:// to it
+     * never crosses the public internet: loopback (localhost / 127.0.0.0/8 / ::1), RFC1918
+     * (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), link-local (169.254.0.0/16 / fe80::/10), the
+     * emulator host alias 10.0.2.2, and any *.local mDNS name. Anything else is treated as public.
+     */
+    private fun isPrivateLanOrLoopback(host: String): Boolean {
+        val h = host.trim().trim('[', ']').lowercase()  // strip IPv6 brackets if present
+        if (h.isEmpty()) return false
+        if (h == "localhost" || h.endsWith(".localhost")) return true
+        if (h == "::1") return true
+        if (h.endsWith(".local")) return true            // mDNS / Bonjour LAN names
+        if (h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd")) return true  // IPv6 link-local / ULA
+
+        // IPv4 dotted-quad: validate and classify by RFC1918 / loopback / link-local.
+        val parts = h.split(".")
+        if (parts.size != 4) return false
+        val octets = parts.map { it.toIntOrNull() ?: -1 }
+        if (octets.any { it < 0 || it > 255 }) return false
+        val (a, b) = octets[0] to octets[1]
+        return when {
+            a == 127 -> true                              // 127.0.0.0/8 loopback
+            a == 10 -> true                               // 10.0.0.0/8
+            a == 172 && b in 16..31 -> true               // 172.16.0.0/12
+            a == 192 && b == 168 -> true                  // 192.168.0.0/16
+            a == 169 && b == 254 -> true                  // 169.254.0.0/16 link-local
+            else -> false
+        }
+    }
 
     // ---------------------------------------------------------------------------------------
     // Anthropic — POST /v1/messages
@@ -356,6 +422,18 @@ class AiCoach(private val repo: WhoopRepository) {
         } catch (e: javax.net.ssl.SSLException) {
             throw Exception("A secure connection to the provider could not be established.")
         } catch (e: java.io.IOException) {
+            // The platform reports a blocked plain-HTTP request as a generic IOException whose
+            // message is "Cleartext HTTP traffic to <host> not permitted" (no dedicated exception
+            // class exists). Detect it and explain, instead of the opaque generic line. This should
+            // be unreachable now that cleartext is permitted app-wide and guardCustomUrl restricts
+            // http:// to private hosts — but stays as a clear fallback if a policy re-blocks it.
+            val msg = e.message.orEmpty()
+            if (msg.contains("Cleartext", ignoreCase = true) && msg.contains("not permitted", ignoreCase = true)) {
+                throw Exception(
+                    "Plain http:// to a LAN address is blocked — update to the build that allows " +
+                        "local-network servers, or use https://."
+                )
+            }
             throw Exception("Network error reaching the provider: ${e.message ?: "unknown"}.")
         }
     }

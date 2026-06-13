@@ -151,7 +151,7 @@ struct MetricExplorerView: View {
         guard emptyByID.isEmpty else { return }
         var map: [String: Bool] = [:]
         for metric in MetricCatalog.all {
-            let s = await repo.series(key: metric.key, source: metric.source)
+            let s = await repo.exploreSeries(key: metric.key, source: metric.source)
             map[metric.id] = s.isEmpty
         }
         emptyByID = map
@@ -344,10 +344,10 @@ struct MetricDetailView: View {
     }
 
     private func load() async {
-        series = await repo.series(key: metric.key, source: metric.source)
+        series = await repo.exploreSeries(key: metric.key, source: metric.source)
         var loadedOthers: [(metric: MetricDescriptor, series: [(day: String, value: Double)])] = []
         for other in MetricCatalog.all where other.id != metric.id {
-            let s = await repo.series(key: other.key, source: other.source)
+            let s = await repo.exploreSeries(key: other.key, source: other.source)
             if !s.isEmpty { loadedOthers.append((other, s)) }
         }
         others = loadedOthers

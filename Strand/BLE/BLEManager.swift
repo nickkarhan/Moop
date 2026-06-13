@@ -133,6 +133,14 @@ public final class BLEManager: NSObject, ObservableObject {
     private var backfiller: Backfiller?
     /// True while a historical offload session is in progress (frames route to Backfiller).
     private var backfilling = false
+    /// Wall time of the most recent offload frame OR HISTORY_COMPLETE — drives the #174 deep-packet
+    /// cooldown. A type-0x2F frame arriving just after a backfill ends (backfilling already flipped
+    /// false) is a TRAILING historical frame, not the live R22 stream; it must not be miscounted as a
+    /// "live deep packet". nil until the first offload frame this process.
+    private var lastOffloadFrameAt: Date?
+    /// Window after the last offload frame/HISTORY_COMPLETE during which a type-0x2F frame is treated
+    /// as trailing-historical, not live. ~10 s comfortably covers the post-completion drain lull.
+    static let deepPacketLiveCooldownSeconds: TimeInterval = 10
     /// Safety-net detector: strap reports newer data than us AND our frontier frozen 10 min ⇒ flag for
     /// reboot. behindGapSeconds avoids false positives when off-wrist / caught up. Insurance only.
     private var stuckDetector = StuckStrapDetector(stuckAfterSeconds: 600, behindGapSeconds: 300)
@@ -161,6 +169,12 @@ public final class BLEManager: NSObject, ObservableObject {
     private var keepAliveTimer: DispatchSourceTimer?
     static let keepAliveIntervalSeconds = 30
     private var keepAliveTick = 0
+    /// If a persisted/missing strap-family preference points at the wrong service, a service-filtered
+    /// BLE scan can run forever even though the strap is nearby (the common "won't reconnect after an
+    /// update" report). Rotate between WHOOP families after a short miss and persist whichever family
+    /// actually advertises. (PR#195)
+    private var scanFallbackWorkItem: DispatchWorkItem?
+    static let scanFallbackDelaySeconds: TimeInterval = 8
     /// Last time ANY notification arrived — drives the liveness watchdog.
     private var lastDataAt = Date()
     /// True while the Live screen wants the (heavy) realtime stream; keep-alive re-arms it.
@@ -380,15 +394,12 @@ public final class BLEManager: NSObject, ObservableObject {
             }
             return
         }
-        log("Scanning for \(model.displayName)…")
-        central.scanForPeripherals(
-            withServices: [model.scanService],
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
-        )
+        startScan(for: model, allowFallback: true)
     }
 
     public func disconnect() {
         intentionalDisconnect = true
+        cancelScanFallback()
         // A user-initiated teardown is a clean slate: clear any #80 marginal-radio fallback so the next
         // (manual) reconnect attempts the full R10/R11 stream again rather than inheriting old suspicion.
         marginalRadio.reset()
@@ -713,6 +724,10 @@ public final class BLEManager: NSObject, ObservableObject {
         guard backfilling else { return }
         backfilling = false
         state.backfilling = false
+        // #174: a backfill just ended. Start (or extend) the deep-packet cooldown from this instant so
+        // any type-0x2F records the strap flushes in the seconds after the session aren't miscounted as
+        // the live R22 stream — they're the offload's tail.
+        lastOffloadFrameAt = Date()
         backfillTimeout?.cancel()
         backfillTimeout = nil
         backfillFrameQueue.removeAll()
@@ -735,24 +750,31 @@ public final class BLEManager: NSObject, ObservableObject {
             // full archive could not preserve, so "saved" is never claimed falsely.
             let archived = state.rejectedFramesThisSession
             let unarchived = state.rejectedFramesUnarchived
-            // A cycle that handed over any real sensor records (decoded, or undecodable-but-archived)
-            // proves the strap's clock is banking; a console-only cycle (no sensor records, ≥3 diagnostic
-            // chunks) is the #77 empty-banking signal. Track CONSECUTIVE empties so a single transient
-            // empty cycle (common under heavy live-HR polling) doesn't false-alarm a healthy strap (#126).
-            let bankedSensorRecords = state.decodedChunksThisSession > 0 || archived > 0 || unarchived > 0
-            let consoleOnly = !bankedSensorRecords && state.consoleChunksThisSession >= 3
+            // Classify this completed offload (pure, unit-tested in EmptyBankingClassifierTests).
+            let banking = BLEManager.classifyCompletedOffload(
+                decodedChunks: state.decodedChunksThisSession,
+                archivedFrames: archived,
+                unarchivedFrames: unarchived,
+                consoleChunks: state.consoleChunksThisSession,
+                rowsPersisted: backfiller?.sessionRowsPersisted ?? 0)
+            let bankedSensorRecords = banking.bankedSensorRecords
+            let bankedNothing = banking.bankedNothing
             let sustainedEmpty = emptySyncTracker.recordCompletedSync(
-                bankedSensorRecords: bankedSensorRecords, consoleOnly: consoleOnly)
+                bankedSensorRecords: bankedSensorRecords, consoleOnly: bankedNothing)
             if unarchived > 0 {
                 state.lastSyncError = "Synced, but \(archived + unarchived) record(s) couldn't be decoded (unrecognised strap firmware layout), and the on-device archive is full — the \(unarchived) newest weren't preserved. Please share a strap log so the layout can be mapped."
             } else if archived > 0 {
                 state.lastSyncError = "Synced, but \(archived) record(s) couldn't be decoded (unrecognised strap firmware layout). The raw bytes were saved on this Mac — please share a strap log so the layout can be mapped."
-            } else if consoleOnly {
-                // #77 family: the offload COMPLETED but the strap handed over only console/diagnostic
-                // output across many chunks — no sensor records at all — i.e. it isn't banking history
-                // to flash (its RTC has lost sync). Only escalate to the actionable banner once emptiness
+            } else if bankedNothing {
+                // #77 / #214 family: the offload COMPLETED but the strap handed over no sensor records
+                // at all — either console/diagnostic output across many chunks, OR a near-empty
+                // metadata-only completion (zero rows persisted) — i.e. it isn't banking history to
+                // flash (its RTC has lost sync). Only escalate to the actionable banner once emptiness
                 // is SUSTAINED (#126): a single empty cycle on an otherwise-banking strap stays silent.
-                log("Backfill: completed but the strap banked no sensor history (console-only across \(state.consoleChunksThisSession) chunks); consecutive empty syncs = \(emptySyncTracker.consecutiveEmptySyncs).")
+                let detail = state.consoleChunksThisSession >= 3
+                    ? "console-only across \(state.consoleChunksThisSession) chunks"
+                    : "metadata-only, 0 sensor rows persisted"
+                log("Backfill: completed but the strap banked no sensor history (\(detail)); consecutive empty syncs = \(emptySyncTracker.consecutiveEmptySyncs).")
                 state.lastSyncError = sustainedEmpty
                     ? "Synced, but your strap had no stored history to hand over — only its diagnostic output. This usually means its clock has lost sync, so it isn't saving data to flash. Fully charge it to 100%, then reconnect, and it should start banking again."
                     : nil
@@ -810,7 +832,7 @@ public final class BLEManager: NSObject, ObservableObject {
             if stuck {
                 log("Watchdog: behind + frontier frozen — recovery (exit high-freq + SET_CLOCK)")
                 send(.exitHighFreqSync, payload: [0x00])
-                send(.setClock, payload: BLEManager.setClockPayload())
+                sendSetClockBothForms()
             }
         }
     }
@@ -821,6 +843,24 @@ public final class BLEManager: NSObject, ObservableObject {
     /// (that flag guards the once-per-connect INITIAL kick); the periodic re-trigger is separate.
     static func shouldRunPeriodicBackfill(connected: Bool, bonded: Bool, backfilling: Bool) -> Bool {
         connected && bonded && !backfilling
+    }
+
+    /// Pure classification of a COMPLETED (HISTORY_COMPLETE) offload, extracted from exitBackfilling so
+    /// it's unit-testable without a CoreBluetooth seam (EmptyBankingClassifierTests).
+    /// - `bankedSensorRecords`: the strap handed over real sensor records — decoded, or
+    ///   undecodable-but-archived (either way its clock is banking to flash).
+    /// - `bankedNothing` (#77/#120/#214): the offload completed but banked NO sensor records at all,
+    ///   in EITHER shape — console-only across ≥3 diagnostic chunks, OR a near-empty metadata-only
+    ///   completion (zero rows persisted) with fewer than 3 console frames. The #214 broadening is the
+    ///   `rowsPersisted == 0` arm: before it, a metadata-only completion slipped through silently. The
+    ///   sustained-streak gate (EmptySyncTracker) still decides whether the banner fires.
+    nonisolated static func classifyCompletedOffload(decodedChunks: Int, archivedFrames: Int,
+                                                     unarchivedFrames: Int, consoleChunks: Int,
+                                                     rowsPersisted: Int)
+        -> (bankedSensorRecords: Bool, bankedNothing: Bool) {
+        let bankedSensorRecords = decodedChunks > 0 || archivedFrames > 0 || unarchivedFrames > 0
+        let bankedNothing = !bankedSensorRecords && (consoleChunks >= 3 || rowsPersisted == 0)
+        return (bankedSensorRecords, bankedNothing)
     }
 
     /// Start (or restart) the periodic backfill timer. Each tick re-runs the type-47 historical
@@ -858,6 +898,12 @@ public final class BLEManager: NSObject, ObservableObject {
     ///     actually flowing in realtime — the prize. (During an offload, type-0x2F is just banked
     ///     history, already handled by the Backfiller, so we only count the live ones.)
     /// Frame layout (5/MG puffin envelope): packet_type @ byte 8, the responded-to cmd @ byte 10.
+    ///
+    /// #174 cooldown: when an offload ENDS, the strap can keep flushing a few trailing type-0x2F
+    /// records AFTER `backfilling` has already flipped false. Those are tail-end HISTORY, not live —
+    /// counting them as "live deep packets" was a false positive. So we stamp `lastOffloadFrameAt` on
+    /// every offload frame (and at HISTORY_COMPLETE) and refuse to count a non-offload 0x2F as live
+    /// within `deepPacketLiveCooldownSeconds` of it. The flag-ACK counting (1) is unchanged.
     private func noteWhoop5R22Telemetry(_ frame: [UInt8], duringOffload: Bool) {
         guard frame.count > 10 else { return }
         if frame[8] == 0x24, frame[10] == WhoopCommand.setConfig.rawValue {
@@ -867,7 +913,20 @@ public final class BLEManager: NSObject, ObservableObject {
                 log("Deep-data: strap ACCEPTED all \(total)/\(total) R22 flags ✓ — keep it on; watching for deep packets.")
             }
         }
-        if frame[8] == 0x2F, !duringOffload {
+        if frame[8] == 0x2F {
+            if duringOffload {
+                // Trailing-history reference point: a 0x2F arriving during the offload is banked
+                // history (handled by the Backfiller). Remember when it landed so the cooldown below
+                // can discount the few that dribble in just after the session ends.
+                lastOffloadFrameAt = Date()
+                return
+            }
+            // Cooldown guard: a 0x2F within deepPacketLiveCooldownSeconds of the last offload
+            // frame/HISTORY_COMPLETE is a trailing historical record, not the live R22 stream.
+            if let last = lastOffloadFrameAt,
+               Date().timeIntervalSince(last) < BLEManager.deepPacketLiveCooldownSeconds {
+                return
+            }
             state.deepPacketsThisSession += 1
             if state.deepPacketsThisSession == 1 {
                 log("Deep-data: 🎯 FIRST live deep (R22, type-0x2F) packet received — this is it. Please keep wearing it and share your strap log on #174.")
@@ -1040,6 +1099,42 @@ public final class BLEManager: NSObject, ObservableObject {
         whoop5NotifyCharacteristics.removeAll()
     }
 
+    /// Start a service-filtered scan for `model`, re-framing the inbound stream for its family (so a
+    /// fallback rotation decodes the strap it actually finds, not the family we started from). When
+    /// `allowFallback` is true, schedule a one-shot rotation to the other WHOOP family after
+    /// `scanFallbackDelaySeconds` of no discovery — recovers reconnect when the persisted preference is
+    /// stale after an update/restore. Discovery/connect cancels the pending rotation. (PR#195)
+    private func startScan(for model: WhoopModel, allowFallback: Bool) {
+        cancelScanFallback()
+        selectedModel = model
+        reassembler = Reassembler(family: model.deviceFamily)
+        router.family = model.deviceFamily
+        configureCollectorFamily()
+        central.stopScan()
+        log("Scanning for \(model.displayName)…")
+        central.scanForPeripherals(
+            withServices: [model.scanService],
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+        )
+        guard allowFallback else { return }
+        let fallback = model.fallbackScanModel
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.central.isScanning, !self.state.connected else { return }
+            self.log("No \(model.displayName) found yet — trying \(fallback.displayName)")
+            self.startScan(for: fallback, allowFallback: true)
+        }
+        scanFallbackWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + BLEManager.scanFallbackDelaySeconds,
+            execute: work
+        )
+    }
+
+    private func cancelScanFallback() {
+        scanFallbackWorkItem?.cancel()
+        scanFallbackWorkItem = nil
+    }
+
     private func enableLiveNotifications(reason: String) {
         guard let p = peripheral, p.state == .connected else { return }
         let chars = [
@@ -1100,7 +1195,7 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         // Clamp rather than trap: an out-of-range alarm date (pre-1970 / post-2106) must not crash.
         let epochSec = UInt32(clamping: Int64(date.timeIntervalSince1970))
-        send(.setClock, payload: BLEManager.setClockPayload())
+        sendSetClockBothForms()
         send(.setAlarmTime, payload: WhoopCommand.setAlarmPayload(epochSec: epochSec))
         log("Alarm: armed for \(localFmt.string(from: date)) — your local wake time (sent as UTC epoch \(epochSec))")
     }
@@ -1194,6 +1289,10 @@ extension BLEManager: CBCentralManagerDelegate {
                                advertisementData: [String: Any],
                                rssi RSSI: NSNumber) {
         let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name ?? "unknown"
+        cancelScanFallback()
+        // Persist the family that actually advertised so the next scan starts on the right service —
+        // this is what makes a one-time rotation stick after a stale-preference reconnect. (PR#195)
+        UserDefaults.standard.set(selectedModel.rawValue, forKey: "selectedWhoopModel")
         log("Discovered \(name) (rssi \(RSSI)) — connecting")
         central.stopScan()
         preparePeripheral(peripheral)
@@ -1201,6 +1300,7 @@ extension BLEManager: CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        cancelScanFallback()
         restoredPeripheral = nil
         preparePeripheral(peripheral)
         state.connected = true
@@ -1250,6 +1350,7 @@ extension BLEManager: CBCentralManagerDelegate {
         state.consoleChunksThisSession = 0
         state.r22FlagsAccepted = 0
         state.deepPacketsThisSession = 0
+        lastOffloadFrameAt = nil   // #174: don't carry a stale cooldown reference into the next session
         backfillTimeout?.cancel()
         backfillTimeout = nil
         backfillFrameQueue.removeAll()
@@ -1531,13 +1632,20 @@ extension BLEManager: CBPeripheralDelegate {
         // (PHASE A = 50 records; PHASE B high-freq = 0). We still exchange hello to mirror WHOOP exactly.
         send(.getHelloHarvard)
         send(.getAdvertisingNameHarvard)
-        send(.setClock, payload: BLEManager.setClockPayload())
+        sendSetClockBothForms()
         if clockRef == nil && !clockRequested {
             clockRequested = true
-            send(.getClock, payload: [])   // the strap expects GET_CLOCK with an EMPTY payload;
-                                           // the app's old default [0x00] is a wrong length the strap ignores.
-                                           // (Offload no longer depends on this — Backfiller falls back to an
-                                           // identity clockRef — but a real correlation helps realtime decode.)
+            // GET_CLOCK's payload length is firmware-specific, exactly like SET_CLOCK's: newer
+            // firmware answers the EMPTY form and ignores [0x00], while fw 41.17.x answers [0x00] and
+            // ignores the empty form (#120). Send both — the strap answers whichever its firmware
+            // accepts, and the `clockRef == nil` correlation guard makes a second reply a no-op.
+            // Without the [0x00] form, correlation never establishes on 41.17.x, so a lost RTC (the
+            // 1971 clock behind #120) stays invisible and ClockPolicy can never re-fix it. Both
+            // GET_CLOCKs ride behind both SET_CLOCKs above, so the reply reflects the corrected clock.
+            // (Offload doesn't depend on this — Backfiller falls back to an identity clockRef — but a
+            // real correlation drives realtime decode and the drift re-set.)
+            send(.getClock, payload: [])
+            send(.getClock, payload: [0x00])
         }
         send(.sendR10R11Realtime, payload: [0x00])   // stop the type-43 realtime flood (BLE airtime/battery)
         send(.getDataRange)                          // refresh the strap's stored range for the watchdog
@@ -1567,13 +1675,42 @@ extension BLEManager: CBPeripheralDelegate {
         }
     }
 
-    /// SET_CLOCK(10) payload = the strap's 8-byte form: [seconds u32 LE][subseconds
-    /// u32 LE], subseconds in 1/32768 s (0 is fine). NOT the old 9-byte [u32 + 5 pad] — a wrong-length
-    /// SET_CLOCK is ack-received but NOT latched, leaving the RTC lost so the strap won't serve type-47.
+    /// SET_CLOCK(10) payload — the 8-byte form `[seconds u32 LE][subseconds u32 LE]`, subseconds in
+    /// 1/32768 s (0 is fine). The payload LENGTH is firmware-specific and LOAD-BEARING: newer WHOOP 4
+    /// firmware latches this form, but fw 41.17.x ignores it outright — no COMMAND_RESPONSE, RTC
+    /// unchanged — and latches only the legacy 9-byte form below. A strap that misses the set keeps an
+    /// invalid RTC and stops banking sensor data to flash entirely, which surfaces as endless
+    /// console-only syncs and no sleep/recovery (#120). Send WHOOP 4 through sendSetClockBothForms()
+    /// so either firmware latches.
     static func setClockPayload(now: UInt32 = UInt32(Date().timeIntervalSince1970)) -> [UInt8] {
         [UInt8(now & 0xFF), UInt8((now >> 8) & 0xFF),
          UInt8((now >> 16) & 0xFF), UInt8((now >> 24) & 0xFF),
          0, 0, 0, 0]
+    }
+
+    /// SET_CLOCK(10) payload — the legacy 9-byte form `[seconds u32 LE][5 zero]` required by WHOOP 4
+    /// fw 41.17.x, which ignores the 8-byte form. On a strap whose RTC was stuck in the past, days of
+    /// 8-byte sends drew no response; the 9-byte form was ack'd (COMMAND_RESPONSE cmd 10), the clock
+    /// latched and ticked, and the strap resumed banking history to flash (#120). On newer firmware
+    /// this form is ack'd but NOT latched, so sending it after the 8-byte form is a no-op there — both
+    /// forms carry the same seconds, so whichever one latches sets the same time.
+    static func setClockPayloadLegacy(now: UInt32 = UInt32(Date().timeIntervalSince1970)) -> [UInt8] {
+        [UInt8(now & 0xFF), UInt8((now >> 8) & 0xFF),
+         UInt8((now >> 16) & 0xFF), UInt8((now >> 24) & 0xFF),
+         0, 0, 0, 0, 0]
+    }
+
+    /// Send SET_CLOCK in every payload form the WHOOP 4 firmware family is known to accept (8-byte for
+    /// newer firmware, 9-byte for 41.17.x — each a no-op on the other). Both carry the same `now`, so
+    /// double-latching is harmless. WHOOP 5/MG keeps its single hardware-validated 8-byte send (its
+    /// connect path calls setClockPayload() directly; the 9-byte form is unverified on that family), so
+    /// the legacy form is gated to WHOOP 4. (#120)
+    func sendSetClockBothForms() {
+        let now = UInt32(Date().timeIntervalSince1970)
+        send(.setClock, payload: BLEManager.setClockPayload(now: now))
+        if selectedModel.deviceFamily == .whoop4 {
+            send(.setClock, payload: BLEManager.setClockPayloadLegacy(now: now))
+        }
     }
 
     /// Newest plausible-unix marker in a GET_DATA_RANGE COMMAND_RESPONSE = the strap's newest stored
@@ -1653,7 +1790,7 @@ extension BLEManager: CBPeripheralDelegate {
                         // clockRef for decoding); SET_CLOCK only keeps FUTURE logging timestamps sane.
                         if ClockPolicy.shouldSetClock(deviceClock: ref.device, wallNow: ref.wall) {
                             log("Clock drift detected — issuing SET_CLOCK")
-                            send(.setClock, payload: BLEManager.setClockPayload())
+                            sendSetClockBothForms()
                         }
                     }
                 }

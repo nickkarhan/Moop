@@ -25,6 +25,7 @@ import Foundation
 struct TodayView: View {
     @EnvironmentObject var repo: Repository
     @EnvironmentObject var live: LiveState
+    @EnvironmentObject var profile: ProfileStore
 
     // Imperial/Metric display preference (D#103). Only the Weight tile carries a convertible unit here.
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
@@ -358,8 +359,8 @@ struct TodayView: View {
                 )
                 StatTile(
                     label: "Weight",
-                    value: weightString(aLatest?.weightKg),
-                    caption: "latest",
+                    value: weightTile(aLatest?.weightKg).value,
+                    caption: weightTile(aLatest?.weightKg).caption,
                     accent: StrandPalette.accent,
                     sparkline: sparks["weight"],
                     sparkColor: StrandPalette.accent
@@ -579,12 +580,16 @@ struct TodayView: View {
         return unit.isEmpty ? n : "\(n) \(unit)"
     }
 
-    /// Weight in kg → the active mass unit. Prefers the Apple Health latest reading, falling back to the
-    /// "weight" series' newest point so a sparse-but-recent value still renders.
-    private func weightString(_ appleWeightKg: Double?) -> String {
-        let kg = appleWeightKg ?? sparks["weight"]?.last
-        guard let kg else { return "—" }
-        return UnitFormatter.massFromKilograms(kg, system: unitSystem)
+    /// The Weight tile's display string + an honest caption ("from profile" only on the fallback).
+    /// Prefers a real Apple-Health reading (today's daily, else the "weight" series' newest point so a
+    /// sparse-but-recent value still renders); when neither carries a weight, falls back to the user's
+    /// self-reported profile weight instead of "—" (#204). Always formatted through the shared
+    /// `UnitFormatter` so the Imperial/Metric toggle reaches this tile. Mirrors Android's `weightTile`.
+    private func weightTile(_ appleWeightKg: Double?) -> (value: String, caption: String) {
+        if let kg = appleWeightKg ?? sparks["weight"]?.last {
+            return (UnitFormatter.massFromKilograms(kg, system: unitSystem), "latest")
+        }
+        return (UnitFormatter.massFromKilograms(profile.weightKg, system: unitSystem), "from profile")
     }
 
     // MARK: - Derived text

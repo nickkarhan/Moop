@@ -17,6 +17,31 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 2.8.9 — Fixes the Insights-tab crash, plus more accurate HRV
+
+- **Fixed (Android):** the Insights tab crashed for anyone with journal entries — a text-matching pattern
+  used a flag that works on a computer but not on Android's regex engine, so it threw the moment you opened
+  Insights. Fixed, with a regression test. Thanks @pilleuspulcher-blip and @maddognik. (#224/#267)
+- **New (Android):** if NOOP ever crashes, the details are now captured into the strap log you share — so a
+  crash that only reproduces on your device can actually be diagnosed. (#33)
+- **More accurate HRV:** the heart-rate variability NOOP computes from a session now discards stray, irregular
+  beats before averaging — the same cleaning the rest of its HRV maths already does — so a noisy WHOOP 5/MG
+  optical reading no longer comes out inflated. Thanks @frazzle28. (#262/#235)
+- **Fixed (Mac):** the sidebar and the Settings strap card could disagree about your connection — one saying
+  "Connecting…" while the other said "Connected" for the same state. They now share one source. Thanks
+  @gingerbeardman. (#266)
+- **Fixed (Mac & iPhone):** the experimental WHOOP 5/MG deep-data unlock now requires the full encrypted bond.
+  A live-HR-only link (strap still owned by the official app) can't carry the unlock, so the button waits for
+  a real bond and tells you to free the strap from the official app first. Thanks @Joshsil03. (#269)
+- **New (Android):** the "Start a workout" sport list shows a scrollbar so you can tell it scrolls, and adds
+  Tennis, Squash and Table tennis. Thanks @nhe. (#265)
+- **New (Android & Mac):** the Intelligence "By Day" list gets a W / M / 3M / 6M / 1Y / ALL range filter.
+  Thanks @ujix. (#252)
+- **New (Android):** the Today heart-rate chart is now tap-and-drag interactive, matching iPhone and Mac.
+  Thanks @ujix. (#254)
+
+---
+
 ## 2.8.8 — Better strap-log diagnostics
 
 - **Improved:** shared strap logs now record which historical data layout your strap uses (v18/v24/v25/v26)

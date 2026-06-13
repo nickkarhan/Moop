@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "2.8.8"
+    const val CURRENT_VERSION = "2.8.9"
 
     data class Release(
         val version: String,
@@ -36,6 +36,20 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "2.8.9",
+            title = "Fixes the Insights-tab crash, plus more accurate HRV",
+            date = "June 2026",
+            items = listOf(
+                "Fixed: the Insights tab crashed for anyone with journal entries — a text-matching pattern used a flag that works on a computer but not on Android’s engine, so it threw the moment you opened Insights. Fixed. Thanks @pilleuspulcher-blip and @maddognik (#224/#267).",
+                "New: if NOOP ever crashes, the details are now saved into the strap log you share — so a crash that only happens on your device can actually be diagnosed (#33).",
+                "More accurate HRV: the heart-rate variability NOOP computes from a session now discards stray, irregular beats before averaging — the same cleaning the rest of its HRV maths already does — so a noisy WHOOP 5/MG optical reading no longer comes out inflated. Thanks @frazzle28 (#262/#235).",
+                "Fixed (WHOOP 5/MG): the experimental deep-data unlock now requires the full encrypted bond. A live-HR-only link (strap still owned by the official app) can’t carry the unlock, so the button waits for a real bond and tells you to free the strap from the official app first. Thanks @Joshsil03 (#269).",
+                "New: the ‘Start a workout’ sport list now shows a scrollbar so you can tell it scrolls, and adds Tennis, Squash and Table tennis. Thanks @nhe (#265).",
+                "New: the Intelligence ‘By Day’ list gets a W / M / 3M / 6M / 1Y / ALL range filter to narrow to a recent window. Thanks @ujix (#252).",
+                "New: the Today heart-rate chart is now tap-and-drag interactive, matching iPhone and Mac. Thanks @ujix (#254).",
+            ),
+        ),
         Release(
             version = "2.8.8",
             title = "Better strap-log diagnostics",

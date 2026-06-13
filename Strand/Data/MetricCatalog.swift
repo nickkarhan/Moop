@@ -11,6 +11,9 @@ struct MetricDescriptor: Identifiable, Hashable {
     let icon: String
     let decimals: Int
     let higherIsBetter: Bool?
+    /// A short, plain-English one-liner for the metric (tile subtitle / catalog blurb). Optional —
+    /// only the three headline scores (Charge / Effort / Rest) carry one today; everything else is nil.
+    var description: String? = nil
     var id: String { source + ":" + key }
 
     func format(_ v: Double) -> String {
@@ -65,7 +68,8 @@ enum MetricCatalog {
         d("vo2max", "VO₂ Max", "Heart", "", "apple-health", "lungs.fill", 1, true),
 
         // ── Charge (was Recovery)
-        d("recovery", "Charge", "Charge", "%", "my-whoop", "heart.circle", 0, true),
+        d("recovery", "Charge", "Charge", "%", "my-whoop", "heart.circle", 0, true,
+          "How recovered you are — led by HRV versus your personal baseline."),
         d("hrv", "Heart Rate Variability", "Charge", "ms", "my-whoop", "waveform.path.ecg", 0, true),
         d("rhr", "Resting Heart Rate", "Charge", "bpm", "my-whoop", "heart", 0, false),
         d("resp_rate", "Respiratory Rate", "Charge", "rpm", "my-whoop", "lungs", 1, nil),
@@ -73,7 +77,8 @@ enum MetricCatalog {
         d("skin_temp", "Skin Temperature", "Charge", "°C", "my-whoop", "thermometer", 1, nil),
 
         // ── Rest (was Sleep)
-        d("sleep_performance", "Rest", "Rest", "%", "my-whoop", "moon.stars", 0, true),
+        d("sleep_performance", "Rest", "Rest", "%", "my-whoop", "moon.stars", 0, true,
+          "How restorative your sleep was — duration, efficiency, deep+REM, timing."),
         d("in_bed_min", "Time in Bed", "Rest", "min", "my-whoop", "bed.double", 0, nil),
         d("sleep_total_min", "Asleep Time", "Rest", "min", "my-whoop", "moon.zzz", 0, true),
         d("hours_vs_needed_pct", "Hours vs Needed", "Rest", "%", "my-whoop", "gauge.medium", 0, true),
@@ -88,7 +93,8 @@ enum MetricCatalog {
         d("sleep_debt_min", "Sleep Debt", "Rest", "min", "my-whoop", "exclamationmark.circle", 0, false),
 
         // ── Effort (was Strain)
-        d("strain", "Effort", "Effort", "/100", "my-whoop", "flame", 1, nil),
+        d("strain", "Effort", "Effort", "/100", "my-whoop", "flame", 1, nil,
+          "Cardiovascular load for the day, on a 0–100 scale (was 0–21)."),
         d("steps", "Steps", "Effort", "", "apple-health", "figure.walk", 0, true),
         d("hr_zones13_min", "HR Zones 1–3", "Effort", "min", "my-whoop", "heart", 0, nil),
         d("hr_zones45_min", "HR Zones 4–5", "Effort", "min", "my-whoop", "heart.fill", 0, nil),
@@ -117,8 +123,9 @@ enum MetricCatalog {
 
     private static func d(_ key: String, _ title: String, _ category: String, _ unit: String,
                           _ source: String, _ icon: String, _ decimals: Int,
-                          _ higherIsBetter: Bool?) -> MetricDescriptor {
+                          _ higherIsBetter: Bool?, _ description: String? = nil) -> MetricDescriptor {
         MetricDescriptor(key: key, title: title, category: category, unit: unit,
-                         source: source, icon: icon, decimals: decimals, higherIsBetter: higherIsBetter)
+                         source: source, icon: icon, decimals: decimals, higherIsBetter: higherIsBetter,
+                         description: description)
     }
 }

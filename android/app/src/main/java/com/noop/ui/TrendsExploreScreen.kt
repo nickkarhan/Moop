@@ -93,6 +93,10 @@ private data class MetricSpec(
      *  nutrition-csv import or the noop-mood check-in write under dedicated source ids (v2.2.0
      *  parity with the macOS MetricCatalog, whose descriptors carry key+source). */
     val seriesSource: String? = null,
+    /** A short, plain-English one-liner (the Explore header subtitle / catalog blurb). Only the
+     *  three headline scores — Charge / Effort / Rest — carry one today; everything else is null.
+     *  Mirrors macOS `MetricDescriptor.description`. */
+    val description: String? = null,
 ) {
     fun format(v: Double): String {
         if (!v.isFinite()) return "—"
@@ -107,11 +111,13 @@ private val builtInMetrics: List<MetricSpec> = listOf(
         key = "recovery", title = "Charge", unit = "%", category = "Charge",
         accent = Palette.accent, higherIsBetter = true, decimals = 0,
         dailyPick = { it.recovery },
+        description = "How recovered you are — led by HRV versus your personal baseline.",
     ),
     MetricSpec(
         key = "strain", title = "Effort", unit = "/100", category = "Effort",
         accent = Palette.strain066, higherIsBetter = null, decimals = 1,
         dailyPick = { it.strain },
+        description = "Cardiovascular load for the day, on a 0–100 scale (was 0–21).",
     ),
     MetricSpec(
         key = "hrv", title = "HRV", unit = "ms", category = "Charge",
@@ -127,6 +133,7 @@ private val builtInMetrics: List<MetricSpec> = listOf(
         key = "sleep", title = "Sleep", unit = "h", category = "Rest",
         accent = Palette.metricPurple, higherIsBetter = true, decimals = 1,
         dailyPick = { it.totalSleepMin?.let { m -> m / 60.0 } },
+        description = "How restorative your sleep was — duration, efficiency, deep+REM, timing.",
     ),
     MetricSpec(
         key = "efficiency", title = "Sleep Efficiency", unit = "%", category = "Rest",
@@ -295,6 +302,16 @@ fun TrendsExploreScreen(vm: AppViewModel) {
             Column(modifier = Modifier.weight(1f)) {
                 Overline(selected.category)
                 Text(selected.title, style = NoopType.title2, color = Palette.textPrimary)
+                // The plain-English one-liner for the three headline scores (Charge/Effort/Rest);
+                // null for every other metric, so only the scores show a subtitle here.
+                selected.description?.let { blurb ->
+                    Text(
+                        blurb,
+                        style = NoopType.footnote,
+                        color = Palette.textTertiary,
+                        modifier = Modifier.padding(top = Metrics.space2),
+                    )
+                }
             }
             SegmentedPillControl(
                 items = ExploreRange.entries.toList(),

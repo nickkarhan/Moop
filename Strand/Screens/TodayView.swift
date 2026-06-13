@@ -42,6 +42,18 @@ struct TodayView: View {
     // Support sheet (donate + contact) — always reachable from the home toolbar.
     @State private var showingSupport = false
 
+    // "How your scores work" guide — presented at a specific score's section when the ⓘ on that
+    // score (or the first-run card) is tapped. nil = not shown. ScoreSection is Identifiable, so
+    // .sheet(item:) drives both presentation and the deep-link target in one binding.
+    @State private var guideSection: ScoreSection?
+    /// `nil` means the user tapped the generic first-run card / a non-section entry: open at the top.
+    @State private var showGuideTop = false
+
+    // One-time, dismissible first-run card pointing at the guide. Set true by either the primary tap
+    // or the ✕, so it never shows again. @AppStorage matches the file's existing prefs style (#103).
+    @AppStorage(Self.guideCardSeenKey) private var scoringGuideCardSeen = false
+    static let guideCardSeenKey = "scoringGuideCardSeen"
+
     // THE single grid definition — every tile group reuses it so margins line up.
     private let grid = [GridItem(.adaptive(minimum: 168), spacing: NoopMetrics.gap)]
 
@@ -78,6 +90,10 @@ struct TodayView: View {
                         message: "Your live heart rate is working from the strap, and charge, effort and rest build from it over your next few nights of wear, sharpening as it learns your baseline. Want your full history instantly? Import your WHOOP export in Data Sources and it backfills in about a minute."
                     )
                 }
+                // One-time pointer to the scoring guide, shown once scores exist.
+                if repo.today?.recovery != nil && !scoringGuideCardSeen {
+                    scoringGuideFirstRunCard
+                }
                 heroSection
                 heartRateTrendSection
                 readinessSection
@@ -106,6 +122,67 @@ struct TodayView: View {
             }
         }
         .animation(.easeOut(duration: 0.18), value: showingSupport)
+        // The scoring guide, opened at a specific score from its ⓘ.
+        .sheet(item: $guideSection) { section in
+            ScoringGuideView(initialSection: section, onClose: { guideSection = nil })
+        }
+        // The scoring guide opened at the top (the first-run card's primary action).
+        .sheet(isPresented: $showGuideTop) {
+            ScoringGuideView(onClose: { showGuideTop = false })
+        }
+    }
+
+    // MARK: First-run scoring-guide card (one-time, dismissible)
+
+    /// "New here?" — a single, dismissible card that points first-time users at the guide. Tapping the
+    /// card opens the guide; the ✕ closes it. Either action sets `scoringGuideCardSeen`, so it shows
+    /// once and never again. Mirrors the DonationNudgeCard's in-flow, never-modal pattern.
+    private var scoringGuideFirstRunCard: some View {
+        NoopCard {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 18))
+                    .foregroundStyle(StrandPalette.accent)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("New here?")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("See how Charge, Effort and Rest are calculated — and how they differ from WHOOP.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        scoringGuideCardSeen = true
+                        showGuideTop = true
+                    } label: {
+                        Label("How your scores work", systemImage: "arrow.right")
+                            .font(StrandFont.subhead)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(StrandPalette.accent)
+                    .padding(.top, 2)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    scoringGuideCardSeen = true
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .padding(6)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
+            }
+            // The whole card is tappable as the primary action; the ✕ stops the tap from also firing.
+            .contentShape(Rectangle())
+            .onTapGesture {
+                scoringGuideCardSeen = true
+                showGuideTop = true
+            }
+        }
     }
 
     // MARK: Readiness — on-device training-readiness synthesis (HRV / resting-HR / load).
@@ -219,6 +296,10 @@ struct TodayView: View {
                         }
                     }
                     .frame(maxWidth: .infinity)
+                    // ⓘ — opens the scoring guide at Charge.
+                    .overlay(alignment: .topTrailing) {
+                        scoreInfoButton(.charge)
+                    }
                 }
                 // Both hero cards stretch to the taller one's height so their bottoms line up — the
                 // text read-out card was shorter than the ring card, leaving them visually mismatched
@@ -309,6 +390,7 @@ struct TodayView: View {
                     sparkline: sparks["strain"],
                     sparkColor: StrandPalette.strain066
                 )
+                .overlay(alignment: .topTrailing) { scoreInfoButton(.effort) }
                 StatTile(
                     label: "Rest",
                     value: sleepValue(d),
@@ -317,6 +399,7 @@ struct TodayView: View {
                     sparkline: sparks["sleep_total_min"],
                     sparkColor: StrandPalette.metricPurple
                 )
+                .overlay(alignment: .topTrailing) { scoreInfoButton(.rest) }
                 StatTile(
                     label: "HRV",
                     value: d?.avgHrv.map { "\(Int($0.rounded()))" } ?? "—",
@@ -519,6 +602,25 @@ struct TodayView: View {
         case ..<88: return "battery.75"
         default:    return "battery.100"
         }
+    }
+
+    // MARK: - Scoring-guide info affordance
+
+    /// A small ⓘ that opens the scoring guide at the given score's section. Sized + tinted as
+    /// unobtrusive chrome so it sits in a tile/card corner without competing with the value.
+    private func scoreInfoButton(_ section: ScoreSection) -> some View {
+        Button {
+            guideSection = section
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .padding(8)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("How \(section.rawValue.capitalized) is calculated")
+        .help("How this score is calculated")
     }
 
     // MARK: - Loading

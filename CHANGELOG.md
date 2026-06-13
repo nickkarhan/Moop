@@ -17,6 +17,18 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 2.8.4 — New: a guide to how your Charge, Effort and Rest scores work
+
+- **New:** a clear in-app guide to how NOOP's three daily scores — **Charge**, **Effort** and **Rest** —
+  are calculated, and how they differ from WHOOP's Recovery, Strain and Sleep. Tap the ⓘ on any score on
+  the Today screen, or open it any time from **Settings → About → How your scores work**. New users get a
+  one-time card pointing to it.
+- **New:** each score now explains how sure NOOP is of it (**Solid / Building / Calibrating**) and carries
+  a one-line description of what it measures. The wiki's *The Science* and *Charge, Effort & Rest* pages
+  were refreshed to match.
+
+---
+
 ## 2.8.3 — Fixed: imported data and strap sync getting stuck on iOS
 
 - **Fixed (iOS):** after importing your data, the strap could get stuck on "store not ready" and never

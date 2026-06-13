@@ -46,6 +46,9 @@ struct SettingsView: View {
     /// "What's New" changelog sheet, reachable any time from About.
     @State private var showWhatsNew = false
 
+    /// "How your scores work" explainer sheet, reachable any time from About.
+    @State private var showScoringGuide = false
+
     /// User-initiated GitHub release check behind the About "Check for updates" button.
     @StateObject private var updateChecker = UpdateChecker()
     @Environment(\.openURL) private var openURL
@@ -67,6 +70,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showWhatsNew) {
             WhatsNewView(onClose: { showWhatsNew = false })
+        }
+        .sheet(isPresented: $showScoringGuide) {
+            ScoringGuideView(onClose: { showScoringGuide = false })
         }
     }
 
@@ -683,6 +689,35 @@ struct SettingsView: View {
                     .buttonStyle(.bordered)
                     .tint(StrandPalette.accent)
                 }
+
+                // How your scores work — the honest explainer for Charge / Effort / Rest and the
+                // confidence labels. Always reachable here, mirroring the "What's new" affordance.
+                Button {
+                    showScoringGuide = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "questionmark.circle")
+                            .foregroundStyle(StrandPalette.accent)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("How your scores work")
+                                .font(StrandFont.body)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Text("Charge, Effort and Rest — and how they differ from WHOOP.")
+                                .font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("How your scores work")
 
                 // Check for updates — a single, user-initiated read of GitHub's public releases API.
                 // No background polling, no auto-update; sends nothing about you, just reads the version.

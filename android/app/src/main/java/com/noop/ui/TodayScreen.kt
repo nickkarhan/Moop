@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,11 +18,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,8 +39,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.analytics.Baselines
 import com.noop.analytics.ReadinessEngine
@@ -102,6 +111,22 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
     val context = LocalContext.current
     val unitSystem = UnitPrefs.system(context)
     val profileWeightKg = remember { ProfileStore.from(context).weightKg }
+
+    // "How your scores work" guide, opened from the per-score ⓘ affordances and the one-time
+    // first-run card. `guideSection` carries which score to deep-link to (null = open at the top);
+    // `showGuide` gates the presenting Dialog. The first-run card's seen-state lives in
+    // ScoringGuidePrefs and is read once (SharedPreferences isn't reactive), then driven locally.
+    var showGuide by remember { mutableStateOf(false) }
+    var guideSection by remember { mutableStateOf<ScoreSection?>(null) }
+    val openGuide: (ScoreSection?) -> Unit = { section ->
+        guideSection = section
+        showGuide = true
+    }
+    var scoringCardSeen by remember { mutableStateOf(ScoringGuidePrefs.cardSeen(context)) }
+    val dismissScoringCard: () -> Unit = {
+        ScoringGuidePrefs.setCardSeen(context)
+        scoringCardSeen = true
+    }
 
     // The newest Apple Health / Health Connect body weight, loaded off the main thread. Null until the
     // load runs or when neither source carries a weight — the Weight tile then falls back to the profile.
@@ -180,6 +205,18 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
     }
 
     ScreenScaffold(title = "Control Center", subtitle = "Your day, read in full") {
+        // One-time "New here?" card pointing at the scoring guide — dismissible, shown until the
+        // user opens the guide OR closes it, after which ScoringGuidePrefs keeps it gone for good.
+        if (!scoringCardSeen) {
+            ScoringGuideIntroCard(
+                onOpen = {
+                    dismissScoringCard()
+                    openGuide(null)
+                },
+                onDismiss = dismissScoringCard,
+            )
+        }
+
         DaySelectorBar(selectedOffset = selectedDayOffset, onSelect = { selectedDayOffset = it })
 
         // When there is no daily score yet (today's recovery is null / no history),
@@ -220,6 +257,12 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
             NoopCard(modifier = Modifier.weight(1f)) {
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     TodayRecoveryRing(displayMetric, recoveryCalibration)
+                    // ⓘ — opens the scoring guide at the Charge section.
+                    ScoreInfoButton(
+                        section = ScoreSection.CHARGE,
+                        onClick = { openGuide(ScoreSection.CHARGE) },
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    )
                 }
             }
             InsightCard(
@@ -242,7 +285,7 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
         // METRICS — uniform tile grid (two columns), each tile with a 14-day sparkline.
         Spacer(Modifier.height(Metrics.selectorTopUp))
         SectionHeader("Key Metrics", overline = dayLabel, trailing = "14-day trend")
-        MetricGrid(displayMetric, window, recoveryCalibration, unitSystem, weightKg, profileWeightKg, importedStepsForDay)
+        MetricGrid(displayMetric, window, recoveryCalibration, unitSystem, weightKg, profileWeightKg, importedStepsForDay, onScoreInfo = openGuide)
         HeartRateTrendCard(viewModel, days, selectedDay, todayDate)
         TodayWorkoutsSection(footer.recentWorkouts)
         // Honest, dismissible 12-hourly donation ask — a card in the flow, never a dialog.
@@ -250,6 +293,97 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
         // Strap battery only while the link is up AND a real reading exists — a stale % from a
         // dropped connection must not present as live (#159).
         TodaySourcesSection(footer, strapBatteryPct = if (live.connected) live.batteryPct?.roundToInt() else null)
+    }
+
+    // Scoring guide sheet — full-screen Dialog, mirroring Settings' What's-new presentation. Opened
+    // by the per-score ⓘ (deep-linked via guideSection) and the first-run card (guideSection = null).
+    if (showGuide) {
+        Dialog(
+            onDismissRequest = { showGuide = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = Palette.surfaceBase) {
+                ScoringGuideScreen(
+                    onClose = { showGuide = false },
+                    initialSection = guideSection,
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Scoring-guide affordances (ⓘ + first-run card)
+
+/**
+ * The small ⓘ that opens the scoring guide. Used on the Charge ring and the Effort / Rest tiles.
+ * [section] only tunes the accessibility label; the deep-link target is carried by [onClick]'s
+ * call site. Icon-only, so it always carries a content description. [compact] shrinks the hit-target
+ * for the tile headers (where a full 36dp button would crowd the fixed-height tile).
+ */
+@Composable
+private fun ScoreInfoButton(
+    section: ScoreSection?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+) {
+    val label = section?.let { "How ${it.label} is calculated" } ?: "How this score is calculated"
+    val button = if (compact) 24.dp else Metrics.iconButton
+    val glyph = if (compact) 16.dp else Metrics.iconSmall
+    IconButton(onClick = onClick, modifier = modifier.size(button)) {
+        Icon(
+            Icons.Outlined.Info,
+            contentDescription = label,
+            tint = Palette.textTertiary,
+            modifier = Modifier.size(glyph),
+        )
+    }
+}
+
+/**
+ * One-time "New here?" card pointing first-run users at the scoring guide. A NoopCard in the Today
+ * flow — never a dialog — with a primary "See how it works" action and a ✕ dismiss; both set the
+ * seen-flag at the call site so the card never returns. Copy verbatim from the approved source.
+ */
+@Composable
+private fun ScoringGuideIntroCard(onOpen: () -> Unit, onDismiss: () -> Unit) {
+    NoopCard {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = Palette.accent,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("New here?", style = NoopType.headline, color = Palette.textPrimary)
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(Metrics.iconButton)
+                        .semantics { contentDescription = "Dismiss" },
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = null,
+                        tint = Palette.textTertiary,
+                        modifier = Modifier.size(Metrics.iconSmall),
+                    )
+                }
+            }
+            Text(
+                "See how Charge, Effort and Rest are calculated — and how they differ from WHOOP.",
+                style = NoopType.subhead,
+                color = Palette.textSecondary,
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onOpen) {
+                    Text("See how it works", style = NoopType.captionNumber, color = Palette.accent)
+                }
+            }
+        }
     }
 }
 
@@ -327,6 +461,7 @@ private fun MetricGrid(
     latestWeightKg: Double? = null,
     profileWeightKg: Double = 75.0,
     importedStepsForDay: Int? = null,
+    onScoreInfo: (ScoreSection) -> Unit = {},
 ) {
     val tiles = listOf<@Composable (Modifier) -> Unit>(
         { m ->
@@ -352,6 +487,7 @@ private fun MetricGrid(
                 accent = d?.strain?.let { Palette.strainColor(it) } ?: Palette.textTertiary,
                 spark = w.strain,
                 sparkColor = Palette.strain066,
+                onInfo = { onScoreInfo(ScoreSection.EFFORT) },
             )
         },
         { m ->
@@ -363,6 +499,7 @@ private fun MetricGrid(
                 accent = d?.totalSleepMin?.let { Palette.textPrimary } ?: Palette.textTertiary,
                 spark = w.sleepMin,
                 sparkColor = Palette.metricPurple,
+                onInfo = { onScoreInfo(ScoreSection.REST) },
             )
         },
         { m ->
@@ -810,10 +947,23 @@ private fun SparkStatTile(
     accent: Color = Palette.textPrimary,
     spark: List<Double> = emptyList(),
     sparkColor: Color = Palette.accent,
+    onInfo: (() -> Unit)? = null,
 ) {
     NoopCard(modifier = modifier.height(Metrics.tileHeight), padding = Metrics.space14) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            Overline(label)
+            // Label row carries the overline and, for the three headline scores only, a trailing ⓘ
+            // that opens the scoring guide at this score. Other tiles render exactly as before.
+            if (onInfo != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Overline(label, modifier = Modifier.weight(1f))
+                    ScoreInfoButton(section = null, onClick = onInfo, compact = true)
+                }
+            } else {
+                Overline(label)
+            }
             Spacer(Modifier.weight(1f))
             Row(
                 modifier = Modifier.fillMaxWidth(),

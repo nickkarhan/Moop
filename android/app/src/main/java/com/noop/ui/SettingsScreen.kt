@@ -193,6 +193,9 @@ fun SettingsScreen(vm: AppViewModel) {
     // is a manual re-open and writes nothing.
     var showWhatsNew by remember { mutableStateOf(false) }
 
+    // "How your scores work" explainer sheet, reachable any time from About (macOS/iOS parity).
+    var showScoringGuide by remember { mutableStateOf(false) }
+
     // EXPERIMENTAL WHOOP 5/MG protocol probes (off by default). Mirrors the macOS @AppStorage toggle;
     // SharedPreferences isn't reactive, so the Switch drives a local mutableState that the store reads.
     val puffinExperiment = remember { PuffinExperiment.from(context) }
@@ -991,6 +994,41 @@ fun SettingsScreen(vm: AppViewModel) {
                     }
                 }
 
+                // How your scores work — the honest explainer for Charge/Effort/Rest + the
+                // confidence labels, opened any time (macOS/iOS About parity).
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Palette.surfaceInset)
+                        .border(1.dp, Palette.hairline, RoundedCornerShape(10.dp))
+                        .clickable { showScoringGuide = true }
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .semantics { contentDescription = "How your scores work" },
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Science,
+                            contentDescription = null,
+                            tint = Palette.accent,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("How your scores work", style = NoopType.headline, color = Palette.textPrimary)
+                            Text(
+                                "Charge, Effort and Rest — and how they differ from WHOOP",
+                                style = NoopType.footnote,
+                                color = Palette.textSecondary,
+                            )
+                        }
+                        Text("›", style = NoopType.title2, color = Palette.accent)
+                    }
+                }
+
                 // Medical disclaimer — inset well with a warning-tinted hairline.
                 Row(
                     modifier = Modifier
@@ -1079,6 +1117,18 @@ fun SettingsScreen(vm: AppViewModel) {
             ) {
                 Surface(modifier = Modifier.fillMaxSize(), color = Palette.surfaceBase) {
                     WhatsNewSheet(onClose = { showWhatsNew = false })
+                }
+            }
+        }
+
+        // Scoring guide sheet, opened from the About row above. Same full-screen Dialog idiom.
+        if (showScoringGuide) {
+            Dialog(
+                onDismissRequest = { showScoringGuide = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+            ) {
+                Surface(modifier = Modifier.fillMaxSize(), color = Palette.surfaceBase) {
+                    ScoringGuideScreen(onClose = { showScoringGuide = false })
                 }
             }
         }

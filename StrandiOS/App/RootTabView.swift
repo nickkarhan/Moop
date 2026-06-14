@@ -35,12 +35,14 @@ struct RootTabView: View {
         // raised gold FAB is overlaid on top, bottom-centre, floating ~20pt above the bar (a
         // native TabView can't host a centre item that overflows the bar, so we float it).
         ZStack(alignment: .bottom) {
+            // Four everyday tabs flanking the raised centre FAB. The FAB sits in the gap between
+            // Trends and Sleep (no tab is buried under it). Live (real-time HR) is a "watch it now"
+            // action, so it lives in the FAB's quick-action sheet and the More list — not a tab.
             TabView(selection: $selectedTab) {
                 tab(TodayView(), "Today", "circle.hexagongrid.fill").tag(0)
                 tab(TrendsView(), "Trends", "chart.xyaxis.line").tag(1)
-                tab(LiveView(), "Live", "waveform.path.ecg").tag(2)
-                tab(SleepView(), "Sleep", "bed.double.fill").tag(3)
-                moreTab.tag(4)
+                tab(SleepView(), "Sleep", "bed.double.fill").tag(2)
+                moreTab.tag(3)
             }
             .tint(StrandPalette.accent)
             // Tab crossfade — README §Motion: ~240ms opacity swap between tab roots, global calm
@@ -111,8 +113,10 @@ struct RootTabView: View {
                     withAnimation(Self.sheetEase) { quickAction = picked }
                 }
             }
-            .presentationDetents([.height(280)])
+            .presentationDetents([.height(344)])
             .presentationDragIndicator(.hidden)
+        case .live:
+            quickScreen(LiveView())
         case .workout:
             quickScreen(WorkoutsView())
         case .journal:
@@ -157,6 +161,7 @@ struct RootTabView: View {
                     link("Compare", "rectangle.split.2x1.fill") { CompareView() }
                 }
                 Section("Body") {
+                    link("Live", "waveform.path.ecg") { LiveView() }
                     link("Workouts", "figure.run") { WorkoutsView() }
                     link("Health", "heart.text.square.fill") { HealthView() }
                     link("Stress", "bolt.heart.fill") { StressView() }
@@ -211,7 +216,7 @@ struct RootTabView: View {
 /// The destinations the centre FAB can present. `.menu` is the action sheet itself; the rest
 /// route to existing screens. `Identifiable` so it drives `.sheet(item:)`.
 private enum QuickAction: Int, Identifiable {
-    case menu, workout, journal, breathe
+    case menu, live, workout, journal, breathe
     var id: Int { rawValue }
 }
 
@@ -239,6 +244,7 @@ private struct QuickActionSheet: View {
                 .padding(.bottom, 10)
 
             VStack(spacing: 8) {
+                row("Live HR", icon: "waveform.path.ecg", tint: StrandPalette.metricRose) { onPick(.live) }
                 row("Start workout", icon: "figure.run", tint: StrandPalette.effortColor) { onPick(.workout) }
                 row("Log journal", icon: "square.and.pencil", tint: StrandPalette.accent) { onPick(.journal) }
                 row("Breathe", icon: "wind", tint: StrandPalette.restColor) { onPick(.breathe) }

@@ -180,9 +180,12 @@ private val drawerGroups: List<DrawerGroup> = listOf(
     )),
 )
 
-/** The four everyday screens that earn a permanent bottom tab; everything else lives in More. */
+/** The everyday screens that earn a permanent bottom tab. Three tabs + a "More" item flank the
+ *  raised centre FAB so it sits in a real gap (between Trends and Sleep) rather than on top of a
+ *  tab. Live (real-time HR) is a "watch it now" action — it lives on the FAB's quick-action sheet
+ *  and in the drawer, not on the bar. */
 private val bottomTabs = listOf(
-    Destination.Today, Destination.Trends, Destination.Live, Destination.Sleep,
+    Destination.Today, Destination.Trends, Destination.Sleep,
 )
 
 /**
@@ -553,8 +556,10 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
 /** A centre-FAB quick action: a display title, an icon and the destination route it opens. */
 private data class QuickAction(val title: String, val icon: ImageVector, val route: String)
 
-/** The three quick actions on the gold centre FAB, each routing to an existing destination. */
+/** The quick actions on the gold centre FAB, each routing to an existing destination. Live HR leads
+ *  — it moved off the bottom bar (so the FAB no longer overlaps a tab) but stays one tap away here. */
 private val quickActions: List<QuickAction> = listOf(
+    QuickAction("Live HR", Destination.Live.icon, Destination.Live.route),
     QuickAction("Start workout", Icons.Filled.FitnessCenter, Destination.Workouts.route),
     QuickAction("Log journal", Icons.Filled.Edit, Destination.Insights.route),
     QuickAction("Breathe", Icons.Filled.Air, Destination.Breathe.route),

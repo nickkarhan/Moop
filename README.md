@@ -1,26 +1,32 @@
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="NOOP — a local-first companion for WHOOP straps" width="860">
+  <img src="docs/assets/hero-v3.png" alt="NOOP v3 — Titanium &amp; Gold: the free, offline WHOOP app for iPhone, Android and Mac" width="900">
+</p>
+
+<p align="center">
+  <img src="docs/assets/logo-v3.png" alt="NOOP" width="72">
 </p>
 
 <h1 align="center">NOOP</h1>
 
-<p align="center"><b>Your strap. Your data. Your machine. Local-first, no cloud.</b></p>
+<p align="center"><b>Your strap. Your data. Your machine. Offline, on-device, no cloud.</b></p>
+
+<p align="center"><sub>Now in <b>v3.0.0 — "Titanium &amp; Gold"</b>: a complete redesign across iPhone, Android &amp; Mac.</sub></p>
 
 <p align="center">
-  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Android%20%C2%B7%20iOS-18C98B?style=flat-square">
-  <img alt="Local first" src="https://img.shields.io/badge/local-first-18C98B?style=flat-square">
-  <img alt="Account free" src="https://img.shields.io/badge/account-free-2FE6A8?style=flat-square">
-  <img alt="WHOOP 4 and 5" src="https://img.shields.io/badge/works%20with-WHOOP%204.0%20%26%205.0-8B9690?style=flat-square">
-  <a href="LICENSE"><img alt="License: PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-8B9690?style=flat-square"></a>
-  <a href="https://www.reddit.com/r/NOOPApp/"><img alt="Community: r/NOOPApp" src="https://img.shields.io/badge/community-r%2FNOOPApp-18C98B?style=flat-square&logo=reddit&logoColor=white"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Android%20%C2%B7%20iOS-E8B84B?style=flat-square">
+  <img alt="Local first" src="https://img.shields.io/badge/local-first-E8B84B?style=flat-square">
+  <img alt="Account free" src="https://img.shields.io/badge/account-free-C8902F?style=flat-square">
+  <img alt="WHOOP 4 and 5" src="https://img.shields.io/badge/works%20with-WHOOP%204.0%20%26%205.0-6B737B?style=flat-square">
+  <a href="LICENSE"><img alt="License: PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-6B737B?style=flat-square"></a>
+  <a href="https://www.reddit.com/r/NOOPApp/"><img alt="Community: r/NOOPApp" src="https://img.shields.io/badge/community-r%2FNOOPApp-E8B84B?style=flat-square&logo=reddit&logoColor=white"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/NoopApp/noop/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/NoopApp/noop?style=flat-square&label=latest&color=18C98B"></a>
-  <a href="https://github.com/NoopApp/noop/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/NoopApp/noop/total?style=flat-square&label=downloads&color=2FE6A8"></a>
-  <a href="https://github.com/NoopApp/noop/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/NoopApp/noop?style=flat-square&color=18C98B"></a>
-  <a href="https://github.com/NoopApp/noop/issues?q=is%3Aissue+is%3Aclosed"><img alt="Issues resolved" src="https://img.shields.io/github/issues-closed/NoopApp/noop?style=flat-square&label=resolved&color=2FE6A8"></a>
-  <a href="https://github.com/NoopApp/noop/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/NoopApp/noop?style=flat-square&label=last%20commit&color=8B9690"></a>
+  <a href="https://github.com/NoopApp/noop/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/NoopApp/noop?style=flat-square&label=latest&color=E8B84B"></a>
+  <a href="https://github.com/NoopApp/noop/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/NoopApp/noop/total?style=flat-square&label=downloads&color=C8902F"></a>
+  <a href="https://github.com/NoopApp/noop/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/NoopApp/noop?style=flat-square&color=E8B84B"></a>
+  <a href="https://github.com/NoopApp/noop/issues?q=is%3Aissue+is%3Aclosed"><img alt="Issues resolved" src="https://img.shields.io/github/issues-closed/NoopApp/noop?style=flat-square&label=resolved&color=C8902F"></a>
+  <a href="https://github.com/NoopApp/noop/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/NoopApp/noop?style=flat-square&label=last%20commit&color=6B737B"></a>
 </p>
 
 <p align="center">
@@ -31,6 +37,15 @@
   <a href="docs/PROTOCOL.md">Protocol</a> ·
   <a href="mailto:thenoopapp@gmail.com">Contact</a>
 </p>
+
+<p align="center">
+  <img src="docs/assets/shot-ios-today.png" alt="Today — iPhone" width="218">
+  &nbsp;&nbsp;
+  <img src="docs/assets/shot-android-sleep.png" alt="Sleep — Android" width="218">
+  &nbsp;&nbsp;
+  <img src="docs/assets/shot-ios-stress.png" alt="Stress — iPhone" width="218">
+</p>
+<p align="center"><sub>Today · Sleep · Stress — the new <b>Titanium &amp; Gold</b> look. One feature set across iPhone, Android &amp; Mac.</sub></p>
 
 ---
 
@@ -70,10 +85,10 @@ Each address also has a scan-to-donate **QR code** in the app under **Support** 
 Pre-built apps you can run right now:
 
 <p>
-  <a href="https://github.com/NoopApp/noop/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/NoopApp/noop?style=flat-square&label=version&color=18C98B"></a>
-  <img alt="Total downloads" src="https://img.shields.io/github/downloads/NoopApp/noop/total?style=flat-square&label=total%20downloads&color=2FE6A8">
-  <img alt="Downloads of this release" src="https://img.shields.io/github/downloads/NoopApp/noop/latest/total?style=flat-square&label=this%20release&color=2FE6A8">
-  <img alt="Released" src="https://img.shields.io/github/release-date/NoopApp/noop?style=flat-square&label=released&color=8B9690">
+  <a href="https://github.com/NoopApp/noop/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/NoopApp/noop?style=flat-square&label=version&color=E8B84B"></a>
+  <img alt="Total downloads" src="https://img.shields.io/github/downloads/NoopApp/noop/total?style=flat-square&label=total%20downloads&color=C8902F">
+  <img alt="Downloads of this release" src="https://img.shields.io/github/downloads/NoopApp/noop/latest/total?style=flat-square&label=this%20release&color=C8902F">
+  <img alt="Released" src="https://img.shields.io/github/release-date/NoopApp/noop?style=flat-square&label=released&color=6B737B">
 </p>
 
 | Platform | Build | Notes |
@@ -241,10 +256,10 @@ with the strap and **score recovery, strain and sleep on your own device** — n
 import required.
 
 <p>
-  <a href="https://github.com/NoopApp/noop/releases/latest"><img alt="Latest across all platforms" src="https://img.shields.io/github/v/release/NoopApp/noop?style=flat-square&label=all%20platforms&color=18C98B"></a>
-  <img alt="Commits per month" src="https://img.shields.io/github/commit-activity/m/NoopApp/noop?style=flat-square&label=commits%2Fmo&color=2FE6A8">
-  <img alt="Top language" src="https://img.shields.io/github/languages/top/NoopApp/noop?style=flat-square&color=18C98B">
-  <img alt="Code size" src="https://img.shields.io/github/languages/code-size/NoopApp/noop?style=flat-square&label=code&color=8B9690">
+  <a href="https://github.com/NoopApp/noop/releases/latest"><img alt="Latest across all platforms" src="https://img.shields.io/github/v/release/NoopApp/noop?style=flat-square&label=all%20platforms&color=E8B84B"></a>
+  <img alt="Commits per month" src="https://img.shields.io/github/commit-activity/m/NoopApp/noop?style=flat-square&label=commits%2Fmo&color=C8902F">
+  <img alt="Top language" src="https://img.shields.io/github/languages/top/NoopApp/noop?style=flat-square&color=E8B84B">
+  <img alt="Code size" src="https://img.shields.io/github/languages/code-size/NoopApp/noop?style=flat-square&label=code&color=6B737B">
 </p>
 
 | Platform | Status |
@@ -550,12 +565,12 @@ forward. Huge thanks to everyone filing reports, sharing strap logs, and reverse
 protocol alongside us — this project is built on it.
 
 <p>
-  <img alt="Open issues" src="https://img.shields.io/github/issues/NoopApp/noop?style=flat-square&label=open&color=18C98B">
-  <img alt="Issues resolved" src="https://img.shields.io/github/issues-closed/NoopApp/noop?style=flat-square&label=resolved&color=2FE6A8">
-  <a href="https://github.com/NoopApp/noop/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/NoopApp/noop?style=flat-square&color=18C98B"></a>
-  <img alt="Forks" src="https://img.shields.io/github/forks/NoopApp/noop?style=flat-square&color=8B9690">
-  <img alt="Commits per month" src="https://img.shields.io/github/commit-activity/m/NoopApp/noop?style=flat-square&label=commits%2Fmo&color=2FE6A8">
-  <img alt="Last commit" src="https://img.shields.io/github/last-commit/NoopApp/noop?style=flat-square&label=last%20commit&color=8B9690">
+  <img alt="Open issues" src="https://img.shields.io/github/issues/NoopApp/noop?style=flat-square&label=open&color=E8B84B">
+  <img alt="Issues resolved" src="https://img.shields.io/github/issues-closed/NoopApp/noop?style=flat-square&label=resolved&color=C8902F">
+  <a href="https://github.com/NoopApp/noop/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/NoopApp/noop?style=flat-square&color=E8B84B"></a>
+  <img alt="Forks" src="https://img.shields.io/github/forks/NoopApp/noop?style=flat-square&color=6B737B">
+  <img alt="Commits per month" src="https://img.shields.io/github/commit-activity/m/NoopApp/noop?style=flat-square&label=commits%2Fmo&color=C8902F">
+  <img alt="Last commit" src="https://img.shields.io/github/last-commit/NoopApp/noop?style=flat-square&label=last%20commit&color=6B737B">
 </p>
 
 ![Repobeats analytics image](https://repobeats.axiom.co/api/embed/97acba228c083adca8453a1ebf15f18dad2894be.svg "Repobeats analytics image")

@@ -108,7 +108,7 @@ public enum StrandPalette {
     // MARK: Sleep stages — the indigo / periwinkle "Rest" colour world.
     public static let sleepAwake = Color(hex: "#FF6F8B") // rose (out of bed)
     public static let sleepLight = Color(hex: "#8E97E0") // periwinkle
-    public static let sleepDeep  = Color(hex: "#5A63C7") // indigo
+    public static let sleepDeep  = Color(hex: "#6E79D8") // indigo (lightened for legibility on the frosted card; still clearly darker than Light)
     public static let sleepREM   = Color(hex: "#B4BDFF") // pale periwinkle (glows)
 
     // MARK: HR zones — cool→warm ramp tuned to the Bevel worlds.
@@ -189,6 +189,13 @@ public enum StrandPalette {
     /// Sample the strain ("Effort") gradient at a value on NOOP's 0...100 Effort scale.
     public static func strainColor(_ strain: Double) -> Color {
         sample(stops: strainStops, at: strain / 100.0)
+    }
+
+    /// Effort tint sampled by a 0...1 fraction (e.g. value/scaleMax), spreading the full ember→amber
+    /// ramp. Prefer this for gauge tips / value-tinted accents so a high Effort reads as bright amber
+    /// rather than ember. `strainColor(_:)` stays for callers holding a 0...100 value.
+    public static func effortTint(fraction: Double) -> Color {
+        sample(stops: strainStops, at: min(max(fraction, 0), 1))
     }
 
     /// The state word for a recovery score, per spec §9.3.

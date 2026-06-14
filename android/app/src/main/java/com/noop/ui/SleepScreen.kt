@@ -2,6 +2,7 @@ package com.noop.ui
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,6 +60,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -445,12 +447,14 @@ private fun Hero(
                 val segments = display.realSegments ?: stageSegments(s)
                 if (segments.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(modifier = Modifier.fillMaxWidth().height(Metrics.stageStripHeight)) {
-                            Hypnogram(
-                                stages = segments,
-                                modifier = Modifier.fillMaxWidth().height(Metrics.stageStripHeight),
-                            )
-                        }
+                        // Hero strip with the band-min-thickness floor (so a short Awake reads as a
+                        // bar, not a tick) + an onset · midpoint · wake time axis when the session
+                        // gives clock times. Mirrors the Swift Hypnogram(showsTimeAxis:).
+                        HypnogramWithAxis(
+                            stages = segments,
+                            onsetTs = session?.startTs,
+                            wakeTs = session?.endTs,
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(Metrics.space16)) {
                             StageLegend("Deep", Palette.sleepDeep)
                             StageLegend("Light", Palette.sleepLight)
@@ -468,6 +472,122 @@ private fun Hero(
             }
         }
     }
+}
+
+/**
+ * The hero hypnogram strip plus an optional onset · midpoint · wake time axis. Mirrors the Swift
+ * Hypnogram(showsTimeAxis:): a proportional stage strip with a per-segment WIDTH floor (so a brief
+ * stage — especially a short Awake blip — reads as a rounded block, not a hairline tick), three
+ * faint vertical hairlines at frac 0 / 0.5 / 1.0, and a clock-label row underneath. The axis only
+ * appears when the session supplies onset/wake timestamps; otherwise this is just the floored strip.
+ * Presentation-only — the segment weights and stage→colour mapping are unchanged.
+ */
+@Composable
+private fun HypnogramWithAxis(
+    stages: List<Pair<String, Float>>,
+    onsetTs: Long?,
+    wakeTs: Long?,
+) {
+    val showsAxis = onsetTs != null && wakeTs != null
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.space6)) {
+        Canvas(modifier = Modifier.fillMaxWidth().height(Metrics.stageStripHeight)) {
+            val w = size.width
+            val h = size.height
+            if (w <= 0f || h <= 0f) return@Canvas
+
+            // Inset well so the strip reads as a recessed track (matches the shared Hypnogram).
+            drawLine(
+                color = Palette.surfaceInset,
+                start = Offset(0f, h / 2f),
+                end = Offset(w, h / 2f),
+                strokeWidth = h,
+                cap = StrokeCap.Round,
+            )
+
+            val weights = stages.map { it.second }.map { if (it.isFinite() && it > 0f) it else 0f }
+            val total = weights.sum()
+            if (stages.isEmpty() || total <= 0f) return@Canvas
+
+            // WIDTH floor: a segment narrower than this reads as a tick. Floor it to ~one strip-height
+            // square so short stages are legible blocks (the Android analogue of the Swift band-min
+            // thickness). Stretches sub-floor stages slightly; proportions of normal stages are intact.
+            val minSegW = h
+            val gap = if (stages.size > 1) 1.5f else 0f
+            var x = 0f
+            stages.forEachIndexed { i, (name, _) ->
+                val rawW = w * (weights[i] / total)
+                if (rawW <= 0f) return@forEachIndexed
+                val segW = maxOf(rawW, minSegW)
+                val drawW = (segW - if (i < stages.size - 1) gap else 0f).coerceAtLeast(0f)
+                if (drawW > 0f) {
+                    val cap = (h / 2f).coerceAtMost(drawW / 2f)
+                    drawLine(
+                        color = stageColorFor(name),
+                        start = Offset(x + cap, h / 2f),
+                        end = Offset((x + drawW - cap).coerceAtLeast(x + cap), h / 2f),
+                        strokeWidth = h,
+                        cap = StrokeCap.Round,
+                    )
+                }
+                x += segW
+            }
+
+            // Time-axis vertical hairlines: onset · midpoint · wake.
+            if (showsAxis) {
+                listOf(0f, 0.5f, 1f).forEach { frac ->
+                    val hx = w * frac
+                    drawLine(
+                        color = Palette.hairline,
+                        start = Offset(hx, 0f),
+                        end = Offset(hx, h),
+                        strokeWidth = 1f,
+                    )
+                }
+            }
+        }
+        if (showsAxis && onsetTs != null && wakeTs != null) {
+            val onset = clockTimeLabel(onsetTs)
+            val mid = clockTimeLabel((onsetTs + wakeTs) / 2L)
+            val wake = clockTimeLabel(wakeTs)
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    onset,
+                    style = NoopType.footnote,
+                    color = Palette.textTertiary,
+                    textAlign = TextAlign.Start,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    mid,
+                    style = NoopType.footnote,
+                    color = Palette.textTertiary,
+                    textAlign = TextAlign.Center,
+                    overflow = TextOverflow.Ellipsis,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    wake,
+                    style = NoopType.footnote,
+                    color = Palette.textTertiary,
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/** Map a stage name to its design-system sleep tone (case-insensitive) — local to this screen so the
+ *  hero strip needn't reach into Charts.kt's private helper. */
+private fun stageColorFor(name: String): Color = when (name.trim().lowercase()) {
+    "deep" -> Palette.sleepDeep
+    "rem" -> Palette.sleepREM
+    "light" -> Palette.sleepLight
+    "awake", "wake" -> Palette.sleepAwake
+    else -> Palette.sleepLight
 }
 
 /**

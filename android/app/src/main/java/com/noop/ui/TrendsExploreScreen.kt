@@ -486,10 +486,12 @@ private fun HeroChartCard(
 ) {
     val heroValue = latest?.let { metric.format(it.value) } ?: "—"
     val asOf = latest?.let { "as of ${it.day}" } ?: "no readings yet"
+    // The range bar above already prints the authoritative reading-count caption; the hero only
+    // names its window so the count isn't doubled in one card height.
     val subtitle = if (fellBack) {
-        "Sparse — widened to ${effectiveRange.windowName} · ${windowed.size} readings"
+        "Trailing ${effectiveRange.windowName}"
     } else {
-        "${windowed.size} readings · ${range.windowName}"
+        "Trailing ${range.windowName}"
     }
     // Wash the hero card in the metric's domain world (Charge green / Effort amber / Rest indigo).
     NoopCard(tint = domainTint(metric.category)) {

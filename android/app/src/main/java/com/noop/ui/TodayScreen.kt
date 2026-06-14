@@ -74,6 +74,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.analytics.Baselines
 import com.noop.analytics.ReadinessEngine
+import com.noop.analytics.StrainScorer
 import com.noop.data.AppleDaily
 import com.noop.data.DailyMetric
 import com.noop.data.HrBucket
@@ -749,7 +750,7 @@ private fun MetricGrid(
                 label = "Effort",
                 value = d?.strain?.let { UnitFormatter.effortDisplay(it, effortScale) } ?: NO_DATA,
                 caption = d?.strain?.let { "of ${UnitFormatter.effortScaleMax(effortScale)}" },
-                accent = d?.strain?.let { Palette.strainColor(it) } ?: Palette.textTertiary,
+                accent = d?.strain?.let { Palette.effortTint(it / StrainScorer.maxStrain) } ?: Palette.textTertiary,
                 spark = w.strain,
                 sparkColor = Palette.strain066,
                 onInfo = { onScoreInfo(ScoreSection.EFFORT) },
@@ -1162,7 +1163,7 @@ private fun OverviewHRChart(
                 if (effortX != null && strain != null) {
                     val x = (size.width - 1f).coerceIn(0f, size.width)
                     drawLine(
-                        color = Palette.strainColor(strain).copy(alpha = 0.85f),
+                        color = Palette.effortTint(strain / StrainScorer.maxStrain).copy(alpha = 0.85f),
                         start = Offset(x, 0f),
                         end = Offset(x, size.height),
                         strokeWidth = 1.5f,
@@ -1205,7 +1206,7 @@ private fun OverviewHRChart(
             if (effortX != null && strain != null) {
                 ChartMarkerPill(
                     text = "${UnitFormatter.effortDisplay(strain, effortScale)} Effort",
-                    color = Palette.strainColor(strain),
+                    color = Palette.effortTint(strain / StrainScorer.maxStrain),
                     modifier = Modifier.markerOffset(plotW, density, topPadDp, alignEnd = true),
                 )
             }
@@ -1334,7 +1335,7 @@ private fun TodayWorkoutsSection(workouts: List<WorkoutRow>) {
                         label = WorkoutEditing.displaySport(workout.sport),
                         value = workoutDuration(workout),
                         caption = workoutCaption(workout),
-                        accent = workout.strain?.let { Palette.strainColor(it) } ?: Palette.textPrimary,
+                        accent = workout.strain?.let { Palette.effortTint(it / StrainScorer.maxStrain) } ?: Palette.textPrimary,
                         delta = workout.energyKcal?.let { "${it.roundToInt()} kcal" },
                         deltaColor = Palette.metricAmber,
                     )

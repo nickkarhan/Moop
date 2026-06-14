@@ -718,9 +718,9 @@ fun StrainGauge(
     BevelGauge(
         fraction = fraction,
         stops = Palette.strainStops,
-        // The strain ramp colour expects a 0–21 value; map the fraction onto that span so the tint is
-        // identical whether the gauge shows 0–100 or 0–21.
-        tipColor = Palette.strainColor(fraction * 100.0),
+        // Tip tint sampled by the fill FRACTION so it spans the full ember→amber ramp identically on the
+        // 0–100 and 0–21 display scales (a maxed gauge reaches the bright-amber peak, not a stuck ember).
+        tipColor = Palette.effortTint(fraction),
         numberText = valueText
             ?: if (clamped % 1.0 == 0.0) clamped.toInt().toString() else String.format(java.util.Locale.US, "%.1f", clamped),
         captionText = "of ${outOf.toInt()}",

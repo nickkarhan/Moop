@@ -114,6 +114,17 @@ fun LiveScreen(viewModel: AppViewModel) {
         // offload), with battery / worn / last-sync stats. Mirrors the macOS consoleHeader.
         ConsoleHeader(live = live, activeConnection = activeConnection)
 
+        // Primary Connect affordance, surfaced ABOVE the fold whenever there's no link — the real
+        // Connect control otherwise lives far below, past the Signal Trust grid, so an offline user
+        // saw only inert copy up top. Gated purely on `!live.connected`, so it disappears the instant
+        // the radio connects. Mirrors the macOS offlineConnectCallout.
+        if (!live.connected) {
+            OfflineConnectCallout(
+                scanning = live.scanning,
+                onConnect = { requestConnect() },
+            )
+        }
+
         // Why it's in this state and what to try (permission, strap busy, not found…).
         live.statusNote?.let { note ->
             Text(
@@ -482,7 +493,12 @@ private fun ConsoleHeader(live: LiveState, activeConnection: Boolean) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 StatePill(label, tone = tone, pulsing = live.bonded || live.scanning)
-                SourceBadge(connectionModeBadge(live, activeConnection), tint = connectionModeColor(live, activeConnection))
+                // Suppress the redundant rose "OFFLINE" badge while fully offline — the pill already
+                // reads "Disconnected" in critical/rose. Keep it for every informative state (FULL BOND
+                // / LIVE HR ONLY / CONNECTING / PAIRED). Gate matches exactly the "OFFLINE" branch.
+                if (showsModeBadge(live, activeConnection)) {
+                    SourceBadge(connectionModeBadge(live, activeConnection), tint = connectionModeColor(live, activeConnection))
+                }
                 if (live.backfilling) {
                     SourceBadge("SYNCING ${live.syncChunksThisSession}", tint = Palette.metricCyan)
                 }
@@ -508,6 +524,65 @@ private fun HeaderStat(title: String, value: String) {
     }
 }
 
+// MARK: - Offline connect callout
+
+/**
+ * The above-the-fold primary Connect affordance, shown only while disconnected. Promotes the formerly-
+ * inert "Scan and connect…" caption into an accent NoopCard with a real, full-width Connect button (the
+ * same scan action the controls row uses below), so the offline state has an obvious action up top
+ * instead of burying it past the Signal Trust grid. Mirrors the macOS offlineConnectCallout.
+ */
+@Composable
+private fun OfflineConnectCallout(scanning: Boolean, onConnect: () -> Unit) {
+    NoopCard(tint = Palette.accent) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(
+                    Icons.Filled.Bluetooth,
+                    contentDescription = null,
+                    tint = Palette.accent,
+                    modifier = Modifier.size(20.dp),
+                )
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Start a live stream", style = NoopType.headline, color = Palette.textPrimary)
+                    Text(
+                        "Scan and connect to start a live stream.",
+                        style = NoopType.subhead,
+                        color = Palette.textSecondary,
+                    )
+                }
+            }
+            Button(
+                onClick = onConnect,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !scanning,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Palette.accent,
+                    contentColor = Palette.surfaceBase,
+                ),
+            ) {
+                Icon(
+                    Icons.Filled.Bluetooth,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp).padding(end = 4.dp),
+                )
+                Text(
+                    if (scanning) "Searching…" else "Scan & Connect",
+                    style = NoopType.captionNumber,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                )
+            }
+        }
+    }
+}
+
 private fun connectionModeBadge(live: LiveState, activeConnection: Boolean): String = when {
     activeConnection && live.encryptedBond -> "FULL BOND"
     activeConnection -> "LIVE HR ONLY"
@@ -515,6 +590,11 @@ private fun connectionModeBadge(live: LiveState, activeConnection: Boolean): Str
     live.encryptedBond -> "PAIRED"
     else -> "OFFLINE"
 }
+
+/** Whether to render the connection-mode badge. False exactly when the badge would read "OFFLINE" —
+ *  the pill already says "Disconnected", so the duplicate rose badge is pure redundancy. */
+private fun showsModeBadge(live: LiveState, activeConnection: Boolean): Boolean =
+    !(!activeConnection && !live.connected && !live.encryptedBond)
 
 private fun connectionModeColor(live: LiveState, activeConnection: Boolean): Color = when {
     activeConnection && live.encryptedBond -> Palette.accent
@@ -639,8 +719,19 @@ private fun PhysiologyStack(live: LiveState, activeConnection: Boolean) {
         }
         RRStrip(rrRecent = live.rrRecent)
         Row(horizontalArrangement = Arrangement.spacedBy(Metrics.gap), modifier = Modifier.fillMaxWidth()) {
-            LiveProofMetric(Modifier.weight(1f), "R-R", live.rr.lastOrNull()?.let { "$it ms" } ?: "—", Palette.metricCyan)
-            LiveProofMetric(Modifier.weight(1f), "Event", live.lastEvent ?: "—", Palette.statusWarning)
+            // Offline: show a muted "Offline" word (dimmed to textTertiary) instead of bare accent-
+            // coloured em-dashes that read as broken live readouts. Real values + accents return on a
+            // stream. Mirrors the macOS liveProofMetric(offline:).
+            LiveProofMetric(
+                Modifier.weight(1f), "R-R",
+                if (activeConnection) (live.rr.lastOrNull()?.let { "$it ms" } ?: "—") else "Offline",
+                Palette.metricCyan, offline = !activeConnection,
+            )
+            LiveProofMetric(
+                Modifier.weight(1f), "Event",
+                if (activeConnection) (live.lastEvent ?: "—") else "Offline",
+                Palette.statusWarning, offline = !activeConnection,
+            )
         }
     }
 }
@@ -689,8 +780,11 @@ private fun RRStrip(rrRecent: List<Int>) {
     }
 }
 
+/** One R-R / Event proof tile. When [offline] the value is dimmed to textTertiary (regardless of the
+ *  passed accent) so an idle tile reads as a muted empty state, not a broken live readout in
+ *  cyan/amber — matching the rrStrip's "Waiting for R-R intervals." treatment above. */
 @Composable
-private fun LiveProofMetric(modifier: Modifier, label: String, value: String, tint: Color) {
+private fun LiveProofMetric(modifier: Modifier, label: String, value: String, tint: Color, offline: Boolean = false) {
     val shape = RoundedCornerShape(10.dp)
     Column(
         modifier = modifier
@@ -701,7 +795,13 @@ private fun LiveProofMetric(modifier: Modifier, label: String, value: String, ti
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(label.uppercase(), style = NoopType.footnote, color = Palette.textTertiary)
-        Text(value, style = NoopType.captionNumber, color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            value,
+            style = NoopType.captionNumber,
+            color = if (offline) Palette.textTertiary else tint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -806,7 +906,9 @@ private fun signalTrustSummary(live: LiveState, activeConnection: Boolean): Stri
     activeConnection && live.encryptedBond -> "Encrypted stream — deep controls and history sync available."
     activeConnection -> "Live heart rate is flowing; full strap controls need an encrypted bond."
     live.connected -> "Connected, waiting for a streaming state."
-    else -> "Scan and connect to start a live stream."
+    // The actionable "Scan and connect…" CTA now lives in the above-the-fold OfflineConnectCallout,
+    // so this ring caption stays a calm empty-state descriptor rather than a competing CTA.
+    else -> "Live heart rate appears here once a strap is connected."
 }
 
 private fun connectionModeDetail(live: LiveState, activeConnection: Boolean): String = when {

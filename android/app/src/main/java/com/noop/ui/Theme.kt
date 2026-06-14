@@ -91,7 +91,7 @@ object Palette {
     // Sleep stages — the indigo / periwinkle "Rest" colour world.
     val sleepAwake = Color(0xFFFF6F8B) // rose (out of bed)
     val sleepLight = Color(0xFF8E97E0) // periwinkle
-    val sleepDeep = Color(0xFF5A63C7)  // indigo
+    val sleepDeep = Color(0xFF6E79D8)  // indigo (lightened for legibility on the frosted card; still clearly darker than Light)
     val sleepREM = Color(0xFFB4BDFF)   // pale periwinkle (glows)
 
     // HR zones — cool→warm ramp tuned to the Bevel worlds.
@@ -198,6 +198,13 @@ object Palette {
 
     /** Sample the strain gradient at an Effort value on the 0..100 scale. */
     fun strainColor(strain: Double): Color = sample(strainStops, (strain / 100.0).toFloat())
+
+    /**
+     * Effort tint sampled by a 0..1 fraction (e.g. value/scaleMax), spreading the full ember→amber
+     * ramp. Prefer this for gauge tips / value-tinted accents so a high Effort reads as bright amber
+     * rather than ember. strainColor() stays for callers holding a 0..100 value.
+     */
+    fun effortTint(fraction: Double): Color = sample(strainStops, fraction.coerceIn(0.0, 1.0).toFloat())
 
     /** The state word for a recovery score, per spec §9.3. */
     fun recoveryState(score: Double): String = when {

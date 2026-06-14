@@ -118,7 +118,9 @@ fun TrendsScreen(vm: AppViewModel) {
         val recAvg = recovery.values.averageOrNull()
         ChartCard(
             title = "Charge",
-            subtitle = recovery.caption,
+            // The range bar above already prints the authoritative reading-count caption;
+            // the hero only names its window so the count isn't doubled in one card height.
+            subtitle = range.subtitle,
             trailing = recAvg?.let { "${it.roundToInt()}" },
             color = Palette.accent,
             tipColor = Palette.chargeBright,
@@ -139,7 +141,8 @@ fun TrendsScreen(vm: AppViewModel) {
 
         // --- Small multiples — HRV / Resting HR / Effort. HRV/RHR are Charge sub-signals → the green
         // card world (each line keeps its metric hue); Effort sits in its amber world. ---
-        SectionHeader("Daily signals", overline = "Trends", trailing = range.subtitle)
+        // No trailing window label — the range bar's overline already states it.
+        SectionHeader("Daily signals", overline = "Trends")
         MetricTrendCard(
             title = "Heart rate variability", unit = "ms",
             color = Palette.metricPurple,
@@ -281,7 +284,7 @@ private fun caption(count: Int, eff: TrendsRange, selected: TrendsRange): String
 @Composable
 private fun ChartCard(
     title: String,
-    subtitle: String,
+    subtitle: String?,
     trailing: String?,
     color: Color,
     values: List<Double>,
@@ -302,7 +305,9 @@ private fun ChartCard(
             Row(verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f)) {
                     Overline(title)
-                    Text(subtitle, style = NoopType.footnote, color = Palette.textTertiary)
+                    if (subtitle != null) {
+                        Text(subtitle, style = NoopType.footnote, color = Palette.textTertiary)
+                    }
                 }
                 if (trailing != null) {
                     Text(trailing, style = NoopType.chartValueLarge, color = color)
@@ -422,7 +427,7 @@ private fun MetricTrendCard(
     val avg = resolved.values.averageOrNull()
     ChartCard(
         title = title,
-        subtitle = resolved.caption,
+        subtitle = null,
         trailing = avg?.let { fmt(it) },
         color = color,
         tint = tint,
@@ -434,7 +439,9 @@ private fun MetricTrendCard(
         higherIsBetter = higherIsBetter,
         changeFmt = fmt,
         footer = listOf(
-            "Mean $unit" to (avg?.let { fmt(it) } ?: EM_DASH),
+            // Plain "Mean" to match the bare Min/Max columns; the unit moves into the value
+            // (e.g. "58 ms") so uppercasing can't render a shouty "MEAN MS".
+            "Mean" to (avg?.let { "${fmt(it)} $unit" } ?: EM_DASH),
             "Min" to (resolved.values.minOrNull()?.let { fmt(it) } ?: EM_DASH),
             "Max" to (resolved.values.maxOrNull()?.let { fmt(it) } ?: EM_DASH),
         ),

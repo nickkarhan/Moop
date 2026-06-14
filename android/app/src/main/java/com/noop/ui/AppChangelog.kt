@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "2.15.3"
+    const val CURRENT_VERSION = "2.16.0"
 
     data class Release(
         val version: String,
@@ -36,6 +36,17 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "2.16.0",
+            title = "A round of look-and-feel polish",
+            date = "June 2026",
+            items = listOf(
+                "Sleep: a clearer hypnogram — short stages (like Awake) read as bars instead of ticks, Deep is more legible on the dark card, and a time axis marks onset / midpoint / wake. Thanks @vulnix0x4 (#323).",
+                "Live: when no strap is connected, Scan & Connect is now front-and-centre instead of buried, the redundant \"Offline\" badge is gone, and idle tiles read a calm \"Offline\". Thanks @vulnix0x4 (#325).",
+                "Trends: cleaner — the reading-count shows once, footers read naturally (\"Mean 69 ms\"), tiny week-over-week moves read \"<1%\", and peaks no longer clip the top of the chart. Thanks @vulnix0x4 (#326).",
+                "Effort: the Effort gauge and accents now brighten across the full amber ramp (a maxed-out day no longer stays dark ember), and the Week-in-Review Effort gauge honours your 0–100 / 0–21 preference. Thanks @vulnix0x4 (#328).",
+            ),
+        ),
         Release(
             version = "2.15.3",
             title = "Android GPS route distance fix",

@@ -113,6 +113,11 @@ struct WeeklyDigestContent: View {
     let digest: WeeklyDigest
     var compact: Bool = false
 
+    /// The Effort display scale (#268), so the Week-in-review Effort gauge matches the Today tile
+    /// and the Trends small-multiple instead of being stuck on "of 100". Charge/Rest stay 0–100.
+    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
+    private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
+
     /// Display order: the two daily scores first, then the nightly signals.
     private static let order: [WeeklyMetric] = [.charge, .effort, .rest, .hrv, .rhr]
     /// The three headline 0–100 scores that get their own domain summary card + gauge.
@@ -178,7 +183,8 @@ struct WeeklyDigestContent: View {
                                     domain: domain(for: metric),
                                     deltaText: deltaText(s),
                                     deltaTone: chipTone(s),
-                                    accessibility: rowAccessibility(s))
+                                    accessibility: rowAccessibility(s),
+                                    effortScale: effortScale)
                 }
             }
         }
@@ -328,10 +334,13 @@ struct WeeklyDigestContent: View {
 
     private func deltaText(_ s: WeeklyMetricSummary) -> String {
         guard s.weekOverWeek.current.n > 0, s.weekOverWeek.previous.n > 0 else { return "new" }
-        if let pct = s.weekOverWeek.pctChange, abs(pct) >= 1 {
-            return "\(Int(abs(pct).rounded()))%"
+        // Always speak in percent so the chip's ↑/↓ + sign reads as a delta. A sub-1% mover
+        // used to fall back to a bare "0.1" which, once the card prepended "−", looked like a
+        // truncated number rather than a change.
+        if let pct = s.weekOverWeek.pctChange {
+            return abs(pct) >= 1 ? "\(Int(abs(pct).rounded()))%" : "<1%"
         }
-        return fmt1(abs(s.wowDelta))
+        return "<1%"
     }
 
     /// Tone: good moves green, bad moves rose, flat/uncomparable grey — folding in
@@ -368,15 +377,28 @@ private struct DigestScoreCard: View {
     let deltaText: String
     let deltaTone: Color
     let accessibility: String
+    /// The Effort display scale (#268). Only consulted for the Effort card; Charge/Rest are genuine
+    /// 0–100 scores and ignore it, keeping their "of 100" caption and integer mean.
+    var effortScale: EffortScale = .hundred
 
     @State private var animatedFraction: Double = 0
+
+    /// The Effort card is the only one that follows the 0–100/0–21 toggle; the rest are fixed 0–100.
+    private var isEffort: Bool { summary.metric == .effort }
 
     private var fraction: Double {
         guard summary.thisWeek.n > 0 else { return 0 }
         return min(max(summary.thisWeek.mean / 100.0, 0), 1)
     }
     private var numberText: String {
-        summary.thisWeek.n > 0 ? "\(Int(summary.thisWeek.mean.rounded()))" : "—"
+        guard summary.thisWeek.n > 0 else { return "—" }
+        return isEffort
+            ? UnitFormatter.effortDisplay(summary.thisWeek.mean, scale: effortScale)
+            : "\(Int(summary.thisWeek.mean.rounded()))"
+    }
+    /// "of 100" for the genuine 0–100 scores; the Effort card follows the scale toggle ("of 100"/"of 21").
+    private var captionText: String {
+        isEffort ? "of \(UnitFormatter.effortScaleMax(effortScale))" : "of 100"
     }
 
     var body: some View {
@@ -398,7 +420,7 @@ private struct DigestScoreCard: View {
                     stops: domain.gradient.stops,
                     tipColor: domain.bright,
                     numberText: numberText,
-                    captionText: "of 100",
+                    captionText: captionText,
                     stateText: nil,
                     supporting: nil,
                     diameter: 118,

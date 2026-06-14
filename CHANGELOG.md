@@ -17,6 +17,15 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 2.16.0 — A round of look-and-feel polish
+
+- **Sleep:** a clearer hypnogram — short stages read as bars not ticks, Deep is more legible, and a time axis marks onset / midpoint / wake. Thanks @vulnix0x4 (#323).
+- **Live:** the Scan & Connect action is front-and-centre when disconnected, the redundant "Offline" badge is gone, idle tiles read a calm "Offline". Thanks @vulnix0x4 (#325).
+- **Trends:** reading-count shown once, natural footer units ("Mean 69 ms"), "<1%" for tiny moves, peaks clear the top gridline. Thanks @vulnix0x4 (#326).
+- **Effort:** gauge + accents brighten across the full amber ramp, and the Week-in-Review Effort gauge honours your 0–100 / 0–21 preference. Thanks @vulnix0x4 (#328).
+
+---
+
 ## 2.15.3 — Android GPS route distance fix
 
 - **Fixed (Android):** GPS workouts could record a route far shorter than reality (a real run saved as

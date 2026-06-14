@@ -245,7 +245,9 @@ struct TrendsView: View {
         // Charge world — green. The hero is a domain-tinted, glowing line with a bright "now" cap.
         return ChartCard(
             title: "Charge",
-            subtitle: recovery.caption,
+            // The range bar above already prints the authoritative reading-count caption;
+            // the hero only names its window so the count isn't doubled in one card height.
+            subtitle: rangeSubtitle,
             trailing: avg.map { "\(Int($0.rounded()))" },
             height: NoopMetrics.chartHeight,
             tint: StrandPalette.chargeColor,
@@ -253,7 +255,9 @@ struct TrendsView: View {
                 if pts.count >= 2 {
                     glowChart(points: pts,
                               gradient: StrandPalette.recoveryGradient,
-                              valueRange: 0...100,
+                              // Lift the ceiling ~6% so a near-100 peak and the NowEndCap halo
+                              // clear the top gridline, matching the padded small multiples.
+                              valueRange: 0...106,
                               tip: StrandPalette.chargeBright,
                               valueFormat: { "\(Int($0.rounded()))" })
                 } else {
@@ -285,14 +289,14 @@ struct TrendsView: View {
         let strainPts = strain.points
 
         return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Daily signals", overline: "Trends", trailing: rangeSubtitle)
+            // No trailing window label — the range bar's overline already states it.
+            SectionHeader("Daily signals", overline: "Trends")
             LazyVGrid(columns: cols, alignment: .leading, spacing: NoopMetrics.gap) {
                 // HRV / Resting HR are Charge sub-signals → the Charge (green) card world, each line
                 // keeping its established metric hue for legibility. Effort sits in its amber world.
                 metricChart(
                     title: "Heart rate variability", unit: "ms",
                     points: hrvPts,
-                    subtitle: hrv.caption,
                     gradient: gradient(StrandPalette.metricPurple),
                     tip: StrandPalette.metricPurple,
                     tint: StrandPalette.chargeColor,
@@ -303,7 +307,6 @@ struct TrendsView: View {
                 metricChart(
                     title: "Resting heart rate", unit: "bpm",
                     points: rhrPts,
-                    subtitle: rhr.caption,
                     gradient: gradient(StrandPalette.metricRose),
                     tip: StrandPalette.metricRose,
                     tint: StrandPalette.chargeColor,
@@ -316,7 +319,6 @@ struct TrendsView: View {
                     // displayed numbers + unit follow the Effort-scale toggle, converted inside `fmt`. (#268)
                     title: "Effort", unit: "/ \(UnitFormatter.effortScaleMax(effortScale))",
                     points: strainPts,
-                    subtitle: strain.caption,
                     gradient: StrandPalette.strainGradient,
                     tip: StrandPalette.effortBright,
                     tint: StrandPalette.effortColor,
@@ -332,7 +334,7 @@ struct TrendsView: View {
     private func metricChart(
         title: LocalizedStringKey, unit: String,
         points pts: [TrendPoint],
-        subtitle: String,
+        subtitle: String? = nil,
         gradient: Gradient,
         tip: Color,
         tint: Color,
@@ -358,7 +360,9 @@ struct TrendsView: View {
             footer: {
                 HStack {
                     ChartFooter([
-                        ("Mean \(unit)", avg.map(fmt) ?? "—"),
+                        // Plain "MEAN" to match the bare MIN/MAX columns; the unit moves into
+                        // the value (e.g. "58 ms") so uppercasing can't render a shouty "MEAN MS".
+                        ("Mean", avg.map { "\(fmt($0)) \(unit)" } ?? "—"),
                         ("Min", pts.map(\.value).min().map(fmt) ?? "—"),
                         ("Max", pts.map(\.value).max().map(fmt) ?? "—"),
                     ])

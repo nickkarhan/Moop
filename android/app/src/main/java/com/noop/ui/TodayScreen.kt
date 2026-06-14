@@ -1571,12 +1571,12 @@ private fun SparkStatTile(
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
+                    // Shrink-to-fit (down to 0.6×) so a value never ellipsizes to "38…"/"10…" next to
+                    // the inline sparkline, matching the Swift tile's minimumScaleFactor (#332).
+                    AutoSizeValue(
                         value,
                         style = NoopType.tileValueLarge,
                         color = accent,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                     if (caption != null) {
                         Text(

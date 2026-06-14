@@ -33,7 +33,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -378,6 +381,38 @@ fun TrendChip(text: String, color: Color = Palette.textTertiary, modifier: Modif
 // [tint] was ADDED (defaulted to the accent) so each tile reads as part of its colour
 // world via a faint card wash. The delta now renders as a TrendChip.
 
+// MARK: - AutoSizeValue — a single-line value that SHRINKS to fit instead of truncating
+//
+// Compose (BOM 2024.06) has no `TextAutoSize`, and the metric/workout tiles are narrow with a
+// trailing sparkline or kcal chip — so a value like "1h 52m" or a tile number was ellipsizing to
+// "1…" (#319/#332). This steps the font down (to a 0.6× floor, matching the Swift tile's
+// minimumScaleFactor) until the text fits one line, then holds. Resets when the text/style changes.
+@Composable
+internal fun AutoSizeValue(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    modifier: Modifier = Modifier,
+    minScale: Float = 0.6f,
+) {
+    var scale by remember(text, style) { mutableStateOf(1f) }
+    Text(
+        text = text,
+        color = color,
+        style = style,
+        fontSize = style.fontSize * scale,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+        onTextLayout = { result ->
+            if (result.didOverflowWidth && scale > minScale) {
+                scale = maxOf(minScale, scale - 0.08f)
+            }
+        },
+    )
+}
+
 @Composable
 fun StatTile(
     label: String,
@@ -399,15 +434,13 @@ fun StatTile(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Value takes priority width so a wider value (e.g. a workout duration "1h 52m")
-                // isn't squeezed to "1…" by the trailing chip — the chip keeps its intrinsic size at
-                // the end and the value ellipsizes only as a last resort (#319).
-                Text(
+                // Value takes priority width and SHRINKS to fit (down to 0.6×) rather than
+                // truncating to "1…", matching the Swift tile's minimumScaleFactor (#319/#332).
+                // The chip keeps its intrinsic size at the end.
+                AutoSizeValue(
                     value,
                     style = NoopType.number(26f),
                     color = accent,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 if (delta != null) {

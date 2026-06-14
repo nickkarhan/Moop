@@ -17,6 +17,13 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 2.16.1 — Today tiles no longer truncate their value (Android)
+
+- **Fixed (Android):** some Today tiles cut their value off to "…" (Effort, Rest, Respiratory, and the
+  Last Workouts durations) — the value now shrinks to fit instead of truncating, matching Mac/iPhone. Thanks @asemfahad (#332).
+
+---
+
 ## 2.16.0 — A round of look-and-feel polish
 
 - **Sleep:** a clearer hypnogram — short stages read as bars not ticks, Deep is more legible, and a time axis marks onset / midpoint / wake. Thanks @vulnix0x4 (#323).

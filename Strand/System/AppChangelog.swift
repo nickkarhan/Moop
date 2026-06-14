@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "2.16.0"
+    static let currentVersion = "2.16.1"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,13 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "2.16.1",
+            title: "Today tiles no longer truncate their value (Android)",
+            date: "June 2026",
+            items: [
+                "Fixed (Android): some Today tiles cut their value off to \"…\" (Effort, Rest, Respiratory, and the Last Workouts durations) — the value now shrinks to fit the tile instead of truncating, matching the Mac/iPhone behaviour. Thanks @asemfahad (#332).",
+            ]),
         Release(
             version: "2.16.0",
             title: "A round of look-and-feel polish",

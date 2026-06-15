@@ -18,6 +18,15 @@
       "screenshotURLs": [],
       "versions": [
         {
+          "version": "3.5.0",
+          "buildVersion": "84",
+          "date": "2026-06-15",
+          "localizedDescription": "Hand-correct sleep times + compressed .noopbak backups",
+          "downloadURL": "https://github.com/NoopApp/noop/releases/download/v3.5.0/NOOP-v3.5.0-ios.ipa",
+          "size": 13811103,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "3.4.0",
           "buildVersion": "83",
           "date": "2026-06-15",
@@ -478,12 +487,12 @@
           "NSHealthUpdateUsageDescription": "NOOP writes the metrics it computes from your strap back into Apple Health, on-device and only when you allow it."
         }
       },
-      "version": "3.4.0",
-      "buildVersion": "83",
+      "version": "3.5.0",
+      "buildVersion": "84",
       "versionDate": "2026-06-15",
-      "versionDescription": "Today hero fix, WHOOP-4 strap rename, journal pre-fill",
-      "downloadURL": "https://github.com/NoopApp/noop/releases/download/v3.4.0/NOOP-v3.4.0-ios.ipa",
-      "size": 13763409,
+      "versionDescription": "Hand-correct sleep times + compressed .noopbak backups",
+      "downloadURL": "https://github.com/NoopApp/noop/releases/download/v3.5.0/NOOP-v3.5.0-ios.ipa",
+      "size": 13811103,
       "minOSVersion": "17.0"
     }
   ],

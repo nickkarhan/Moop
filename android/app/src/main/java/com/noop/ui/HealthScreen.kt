@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.analytics.Baselines
 import com.noop.analytics.FitnessAgeEngine
+import com.noop.analytics.VitalityEngine
 import com.noop.analytics.FitnessAgeReadiness
 import com.noop.analytics.FitnessReadinessItem
 import com.noop.analytics.FitnessReadinessRole
@@ -122,6 +123,7 @@ fun HealthScreen(vm: AppViewModel, onVitalClick: (String) -> Unit = {}) {
             // metricSeries the IntelligenceEngine writes; readiness is derived from what this screen sees.
             Spacer(Modifier.height(Metrics.selectorTopUp))
             FitnessAgeSection(vm = vm, days = days, profile = profile)
+            VitalitySection(vm = vm, days = days, profile = profile)
             // CONTRIBUTORS (README screen #5, recovery detail) — the signals behind recovery as
             // labelled progress bars in the shared stage/zone bar style, mirroring Today's section.
             Spacer(Modifier.height(Metrics.selectorTopUp))
@@ -298,6 +300,86 @@ private fun FitnessAgeSection(vm: AppViewModel, days: List<DailyMetric>, profile
         } else {
             // No weekly value yet — surface the checklist directly so the user knows what's pending.
             FitnessReadinessCard(readiness = readiness, headed = true)
+        }
+    }
+}
+
+/** Vitality / Body Age: a weekly 0–100 wellness score + Body Age in years, computed by
+ *  IntelligenceEngine from the mortality-hazard model and read from metricSeries. A wellness trend
+ *  from your habits — NOT a clinical biological age. Recomputes the live best/worst factor for the why. */
+@Composable
+private fun VitalitySection(vm: AppViewModel, days: List<DailyMetric>, profile: ProfileStore) {
+    var vitality by remember { mutableStateOf<Double?>(null) }
+    var bodyAge by remember { mutableStateOf<Double?>(null) }
+    LaunchedEffect(days) {
+        vitality = runCatching {
+            vm.repo.metricSeries(COMPUTED_SOURCE, "vitality", "0000-01-01", "9999-12-31")
+        }.getOrDefault(emptyList()).lastOrNull()?.value
+        bodyAge = runCatching {
+            vm.repo.metricSeries(COMPUTED_SOURCE, "body_age", "0000-01-01", "9999-12-31")
+        }.getOrDefault(emptyList()).lastOrNull()?.value
+    }
+    val contributions = remember(days, profile.age) {
+        val last7 = days.takeLast(7)
+        val nights = last7.mapNotNull { it.totalSleepMin }.map { it / 60.0 }.filter { it > 0 }
+        val hrvs = last7.mapNotNull { it.avgHrv }
+        val rhrs = last7.mapNotNull { it.restingHr }.map { it.toDouble() }
+        val steps = last7.mapNotNull { it.steps }.map { it.toDouble() }
+        fun mean(a: List<Double>): Double? = if (a.isEmpty()) null else a.average()
+        VitalityEngine.contributions(VitalityEngine.Inputs(
+            chronoAge = profile.age.toDouble(), restingHR = mean(rhrs), sleepHours = mean(nights),
+            sleepConsistency = VitalityEngine.sleepConsistency(nights),
+            rmssd = mean(hrvs), rmssdNorm = VitalityEngine.rmssdNorm(profile.age.toDouble()), steps = mean(steps)))
+    }
+    val v = vitality; val ba = bodyAge
+    if (v != null && ba != null) {
+        Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+            SectionHeader("Vitality", overline = "Weekly", trailing = "Body Age ${ba.roundToInt()}")
+            VitalityHero(vitality = v, bodyAge = ba, chronoAge = profile.age, contributions = contributions)
+        }
+    }
+}
+
+@Composable
+private fun VitalityHero(
+    vitality: Double, bodyAge: Double, chronoAge: Int,
+    contributions: List<VitalityEngine.Contribution>,
+) {
+    val delta = chronoAge - bodyAge.roundToInt()
+    val younger = bodyAge < chronoAge
+    val sorted = contributions.sortedBy { it.lnHazard }
+    val best = sorted.firstOrNull()
+    val worst = sorted.lastOrNull()
+    NoopCard(tint = Palette.chargeColor) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Overline("Vitality")
+                    Text("${vitality.roundToInt()}", style = NoopType.display(56f), color = Palette.chargeColor)
+                    Text("out of 100", style = NoopType.footnote, color = Palette.textTertiary)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Overline("Body Age")
+                    Text("${bodyAge.roundToInt()}", style = NoopType.number(34f), color = Palette.textPrimary)
+                    Text(
+                        if (delta == 0) "about your age"
+                        else "${kotlin.math.abs(delta)} ${yearWord(delta)} ${if (younger) "younger" else "older"}",
+                        style = NoopType.footnote,
+                        color = if (delta == 0) Palette.textSecondary
+                        else if (younger) Palette.statusPositive else Palette.statusWarning,
+                    )
+                }
+            }
+            if (best != null && best.lnHazard < 0) {
+                Text("Helping most: ${best.label}", style = NoopType.footnote, color = Palette.statusPositive)
+            }
+            if (worst != null && worst.lnHazard > 0) {
+                Text("Holding you back: ${worst.label}", style = NoopType.footnote, color = Palette.statusWarning)
+            }
+            Text(
+                "A wellness estimate from your habits — not a clinical biological age.",
+                style = NoopType.footnote, color = Palette.textTertiary,
+            )
         }
     }
 }

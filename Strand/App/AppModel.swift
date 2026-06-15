@@ -20,6 +20,13 @@ final class AppModel: ObservableObject {
     /// init(); `weak` so an intent fired while NOOP is closed sees nil and asks the user to open it. (#42)
     static weak var shared: AppModel?
 
+    /// Timestamp formatter for the generic-HR strap-log lines routed through `straplog` into the shared
+    /// log (issue #421). Mirrors `BLEManager.logTimeFormatter`'s `HH:mm:ss` so WHOOP and HR-strap lines
+    /// read identically in the exported strap log.
+    static let logTimeFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f
+    }()
+
     /// Shared device id for both live capture (BLEManager) and imported history.
     let deviceId = "my-whoop"
     /// Source id for imported Apple Health data (stored beside Whoop for per-source pages + consensus).
@@ -242,7 +249,13 @@ final class AppModel: ObservableObject {
             setWhoopPreferredPeripheral: { [weak self] uuid in self?.ble.setPreferredPeripheral(uuid) },
             setWhoopActiveDeviceId: { [weak self] id in self?.ble.setActiveDeviceId(id) },
             // The engine's last-connected WHOOP uuid drives first-connect identity adoption.
-            connectedPeripheralUUID: ble.$connectedPeripheralUUID.eraseToAnyPublisher())
+            connectedPeripheralUUID: ble.$connectedPeripheralUUID.eraseToAnyPublisher(),
+            // Generic-HR connect lifecycle → the SAME strap log BLEManager writes to (`live.append(log:)`),
+            // so a "connected but no data" report (issue #421) is no longer blind to the Polar/Wahoo/etc
+            // path. Timestamp matches BLEManager.log()'s "HH:mm:ss" so the lines read consistently.
+            straplog: { [weak self] line in
+                self?.live.append(log: "[\(AppModel.logTimeFormatter.string(from: Date()))] \(line)")
+            })
         coordinator.start()
         self.deviceRegistry = registry
         self.sourceCoordinator = coordinator

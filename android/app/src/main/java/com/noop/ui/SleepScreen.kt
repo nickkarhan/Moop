@@ -2209,17 +2209,26 @@ internal fun SleepConsistencyCard(sleeps: List<SleepSession>) {
                         val chartH = size.height
 
                         val gridHours = listOf(-4f, 0f, 4f, 8f, 12f, 16f)
+                        // The top "20:00" was drawn at x=0 with its baseline pinned to y=20, so its
+                        // glyphs bled above the chart top and into the card's rounded top-left corner and
+                        // got cropped (#443). Fix: a smaller label that fits the 52px gutter, and a
+                        // baseline that's CENTRED on each gridline then clamped so the full glyph
+                        // (ascent..descent) clears the rounded corners (cornerSm, in px) top and bottom.
+                        val cornerPx = Metrics.cornerSm.toPx()
                         val paint = android.graphics.Paint().apply {
                             color = labelArgb
-                            textSize = 26f
+                            textSize = 20f
                             isAntiAlias = true
                         }
+                        val fm = paint.fontMetrics
                         gridHours.forEach { h ->
                             val y = (chartH * ((h - yMin) / yRange)).coerceIn(0f, chartH)
                             drawLine(color = hairlineColor, start = Offset(yAxisW, y), end = Offset(size.width, y), strokeWidth = 1f)
-                            // Draw the label just below the gridline (top of chart = earliest time).
-                            val textY = (y + 16f).coerceIn(20f, chartH - 4f)
-                            drawContext.canvas.nativeCanvas.drawText(hourToLabel(h), 0f, textY, paint)
+                            val baseline = (y - (fm.ascent + fm.descent) / 2f)
+                                .coerceIn(cornerPx - fm.ascent, chartH - fm.descent)
+                            // Small left inset (4px) keeps the text off the very edge; at these clamped
+                            // baselines every label sits clear of the rounded corner arc.
+                            drawContext.canvas.nativeCanvas.drawText(hourToLabel(h), 4f, baseline, paint)
                         }
 
                         // Per-night bars (bed → wake), coordinates clamped to [0, chartH].

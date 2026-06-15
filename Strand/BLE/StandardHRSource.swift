@@ -41,6 +41,14 @@ public final class StandardHRSource: NSObject, ObservableObject {
     private let live: LiveState
     private let persist: (Streams) -> Void
     private let deviceId: String
+    /// Diagnostic sink for the connect lifecycle. Wired (via `SourceCoordinator`) to the SAME strap-log
+    /// sink `BLEManager` uses, so the generic-HR path is no longer invisible in a bug report (issue #421).
+    /// Every line is prefixed `"HR-strap: "` so it's distinguishable from WHOOP lines in the shared log.
+    /// Default no-op keeps existing call sites compiling and the discovery-only scanner silent.
+    private let log: (String) -> Void
+
+    /// Logs the FIRST HR sample of a connection only (never every notification); reset on stop/disconnect.
+    private var loggedFirstHR = false
 
     // MARK: - CoreBluetooth state (OWN central, separate from WHOOP)
 
@@ -67,10 +75,17 @@ public final class StandardHRSource: NSObject, ObservableObject {
     ///   - live: the shared `LiveState` the Live UI observes.
     ///   - deviceId: the datastore device id these samples are attributed to.
     ///   - persist: wired by the app to `store.insert(_, deviceId:)`. Called on the main actor.
-    public init(live: LiveState, deviceId: String, persist: @escaping (Streams) -> Void) {
+    ///   - log: connect-lifecycle diagnostics sink, wired at the composition root to the same strap log
+    ///     `BLEManager` writes to (issue #421). Defaults to a no-op so the discovery-only scanner and
+    ///     existing call sites stay silent / compile unchanged.
+    public init(live: LiveState,
+                deviceId: String,
+                persist: @escaping (Streams) -> Void,
+                log: @escaping (String) -> Void = { _ in }) {
         self.live = live
         self.deviceId = deviceId
         self.persist = persist
+        self.log = log
         super.init()
         // Dedicated queue-less central → callbacks arrive on the main queue, matching @MainActor.
         self.central = CBCentralManager(delegate: self, queue: nil)
@@ -83,7 +98,11 @@ public final class StandardHRSource: NSObject, ObservableObject {
         discovered.removeAll()
         seenPeripherals.removeAll()
         scanning = true
-        guard central.state == .poweredOn else { return }   // deferred until poweredOn
+        log("HR-strap: scanning for standard heart-rate straps (0x180D)…")
+        guard central.state == .poweredOn else {
+            log("HR-strap: Bluetooth not powered on (state=\(central.state.rawValue)) — scan deferred until ready")
+            return   // deferred until poweredOn
+        }
         central.scanForPeripherals(withServices: [Self.heartRateService],
                                    options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
     }
@@ -99,10 +118,18 @@ public final class StandardHRSource: NSObject, ObservableObject {
     /// Connect to the chosen discovered strap and start streaming its HR.
     public func connect(_ id: UUID) {
         stopScan()
-        guard let p = seenPeripherals[id] else { return }
+        guard let p = seenPeripherals[id] else {
+            log("HR-strap: connect requested for an undiscovered strap (\(id)) — ignored")
+            return
+        }
         peripheral = p
         p.delegate = self
-        guard central.state == .poweredOn else { pendingConnectID = id; return }
+        guard central.state == .poweredOn else {
+            pendingConnectID = id
+            log("HR-strap: Bluetooth not powered on — connect to \(id) deferred until ready")
+            return
+        }
+        log("HR-strap: connecting to \(id)")
         central.connect(p, options: nil)
     }
 
@@ -114,6 +141,7 @@ public final class StandardHRSource: NSObject, ObservableObject {
             central.cancelPeripheralConnection(p)
         }
         peripheral = nil
+        loggedFirstHR = false         // a later reconnect should log its first sample again
         flush()                       // persist anything still buffered
         live.connected = false
     }
@@ -166,9 +194,11 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
                                advertisementData: [String: Any],
                                rssi RSSI: NSNumber) {
         let id = peripheral.identifier
+        let firstSight = seenPeripherals[id] == nil   // not seen before this scan
         seenPeripherals[id] = peripheral
         let advName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
         let name = advName ?? peripheral.name ?? "Heart Rate Strap"
+        if firstSight { log("HR-strap: found \(name) (\(id)) rssi \(RSSI.intValue)") }
         let strap = DiscoveredStrap(id: id, name: name, rssi: RSSI.intValue)
         if let idx = discovered.firstIndex(where: { $0.id == id }) {
             discovered[idx] = strap
@@ -178,17 +208,25 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        log("HR-strap: connected — discovering services")
         peripheral.delegate = self
         peripheral.discoverServices([Self.heartRateService])
     }
 
     public func centralManager(_ central: CBCentralManager,
                                didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        log("HR-strap: WARNING failed to connect — \(error?.localizedDescription ?? "unknown error")")
         live.connected = false
     }
 
     public func centralManager(_ central: CBCentralManager,
                                didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        if let error = error {
+            log("HR-strap: disconnected — \(error.localizedDescription)")
+        } else {
+            log("HR-strap: disconnected (clean)")
+        }
+        loggedFirstHR = false   // a reconnect should log its first sample again
         flush()
         live.connected = false
         if self.peripheral?.identifier == peripheral.identifier {
@@ -201,7 +239,20 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
 
 extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        guard error == nil, let services = peripheral.services else { return }
+        if let error = error {
+            log("HR-strap: WARNING service discovery failed — \(error.localizedDescription)")
+            return
+        }
+        guard let services = peripheral.services else {
+            log("HR-strap: services discovered but the list was empty")
+            return
+        }
+        log("HR-strap: services discovered")
+        if services.contains(where: { $0.uuid == Self.heartRateService }) {
+            log("HR-strap: 0x180D heart-rate service FOUND")
+        } else {
+            log("HR-strap: 0x180D heart-rate service NOT FOUND — this strap may not expose standard HR")
+        }
         for svc in services where svc.uuid == Self.heartRateService {
             peripheral.discoverCharacteristics([Self.heartRateMeasurement], for: svc)
         }
@@ -209,9 +260,32 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
 
     public func peripheral(_ peripheral: CBPeripheral,
                            didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        guard error == nil, let chars = service.characteristics else { return }
+        if let error = error {
+            log("HR-strap: WARNING characteristic discovery failed — \(error.localizedDescription)")
+            return
+        }
+        guard let chars = service.characteristics else {
+            log("HR-strap: characteristics discovered but the list was empty")
+            return
+        }
+        if chars.contains(where: { $0.uuid == Self.heartRateMeasurement }) {
+            log("HR-strap: 0x2A37 measurement characteristic found — enabling notifications on 0x2A37")
+        } else {
+            log("HR-strap: 0x2A37 measurement characteristic NOT FOUND — cannot read HR from this strap")
+        }
         for ch in chars where ch.uuid == Self.heartRateMeasurement {
             peripheral.setNotifyValue(true, for: ch)
+        }
+    }
+
+    public func peripheral(_ peripheral: CBPeripheral,
+                           didUpdateNotificationStateFor characteristic: CBCharacteristic,
+                           error: Error?) {
+        guard characteristic.uuid == Self.heartRateMeasurement else { return }
+        if let error = error {
+            log("HR-strap: WARNING enabling notifications FAILED — \(error.localizedDescription) — strap will send no HR data")
+        } else {
+            log("HR-strap: notifications enabled (isNotifying=\(characteristic.isNotifying))")
         }
     }
 
@@ -221,6 +295,11 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
               characteristic.uuid == Self.heartRateMeasurement,
               let value = characteristic.value else { return }
         guard let parsed = StandardHeartRate.parse([UInt8](value)) else { return }
+        // Log the FIRST sample of a connection only — proof that data is flowing — never every sample.
+        if !loggedFirstHR {
+            loggedFirstHR = true
+            log("HR-strap: receiving data — first sample \(parsed.hr) bpm (rr beats: \(parsed.rr.count))")
+        }
         live.heartRate = parsed.hr
         live.setRRIntervals(parsed.rr)
         live.connected = true

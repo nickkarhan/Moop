@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -687,6 +686,10 @@ private fun StatRow(
                 accent = Palette.textPrimary,
             )
         }
+        // Two-up (not three-up + a pad cell): the prev-window comparison tile carries a value, a
+        // delta chip AND a "vs prev <window>" caption, which all clipped at a third of the width —
+        // "vs prev 6 months" truncated to "vs prev 6 m…" and the delta chip ran off the tile (#443).
+        // Half-width gives every part room; mirrors the 2-up tile rows used on Sleep/Compare.
         Row(horizontalArrangement = Arrangement.spacedBy(Metrics.gap)) {
             StatTile(
                 modifier = Modifier.weight(1f),
@@ -704,8 +707,6 @@ private fun StatRow(
                 delta = pctChange?.let { "${if (it >= 0) "+" else ""}${String.format(Locale.US, "%.1f", it)}%" },
                 deltaColor = deltaColor,
             )
-            // Pad the row to three columns so tiles keep equal width with the row above.
-            Spacer(Modifier.weight(1f))
         }
     }
 }

@@ -77,6 +77,12 @@ class SourceCoordinator(
      *  closure to assert the wording. Inert on the single-WHOOP path (the message only fires on a
      *  registered-but-mismatched strap). */
     private val log: (String) -> Unit = { Log.i("SourceCoordinator", it) },
+    /** Diagnostic sink for the ISOLATED generic-HR source's connect lifecycle. Wired at the composition
+     *  root to [WhoopBleClient.externalLog] so generic-HR lines land in the SAME in-app strap log the user
+     *  exports (issue #421 — the Polar/Wahoo/Coospo/Garmin-HRM path was previously invisible). Passed into
+     *  [StandardHrSource] as its `log`; kept SEPARATE from [log] above (which defaults to logcat and only
+     *  carries the multi-WHOOP adoption notice). Default no-op keeps existing call sites compiling. */
+    private val straplog: (String) -> Unit = {},
 ) {
 
     /** The lazily-created generic-strap source. null until the first switch to a strap; reused after. */
@@ -236,6 +242,7 @@ class SourceCoordinator(
             persist = { batch: StreamBatch, deviceId: String ->
                 scope.launch { runCatching { repo.insert(batch, deviceId) } }
             },
+            log = straplog,   // generic-HR lifecycle → the SAME exported strap log (issue #421)
         )
         source.scan()   // discover + connect the chosen strap on its own scanner/GATT
         standardSource = source

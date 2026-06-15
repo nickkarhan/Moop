@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.noop.data.JournalEntry
 import java.time.LocalDate
@@ -182,19 +183,31 @@ fun JournalLogCard(
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
         // Header: title/overline on the left, the Tomorrow/Today/Yesterday toggle (or Edit/Done) on the right.
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.weight(1f)) {
-                SectionHeader(title = "Journal", overline = "Log")
+            // Inlined (not SectionHeader) so the title stays single-line in this crowded header row:
+            // with Edit + the three day chips on the right, SectionHeader's wrapping title squeezed
+            // "Journal" onto two lines (#443). Same tokens as SectionHeader (Overline + title2).
+            Column(modifier = Modifier.weight(1f)) {
+                Overline("Log")
+                Text(
+                    "Journal",
+                    style = NoopType.title2,
+                    color = Palette.textPrimary,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             if (editing) {
                 JournalChip("Done", selected = true) { editing = false }
             } else {
                 JournalChip("Edit", selected = false) { editing = true }
                 Spacer(Modifier.width(6.dp))
-                JournalChip("Tomorrow", selected = dayOffset == -1L) { onDayOffset(-1L) }
+                // Chronological left→right: Yesterday · Today · Tomorrow (#443).
+                JournalChip("Yesterday", selected = dayOffset == 1L) { onDayOffset(1L) }
                 Spacer(Modifier.width(6.dp))
                 JournalChip("Today", selected = dayOffset == 0L) { onDayOffset(0L) }
                 Spacer(Modifier.width(6.dp))
-                JournalChip("Yesterday", selected = dayOffset == 1L) { onDayOffset(1L) }
+                JournalChip("Tomorrow", selected = dayOffset == -1L) { onDayOffset(-1L) }
             }
         }
         NoopCard {

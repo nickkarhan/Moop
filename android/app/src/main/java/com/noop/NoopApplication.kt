@@ -91,6 +91,9 @@ class NoopApplication : Application() {
             // path — the coordinator only invokes them for a non-legacy WHOOP / a non-null peripheralId.
             setWhoopPreferredAddress = { addr -> ble.preferredAddress = addr },
             setWhoopActiveDeviceId = { id -> ble.setActiveDeviceId(id) },
+            // Generic-HR connect lifecycle → the SAME in-app strap log the user exports, so a
+            // "connected but no data" report (issue #421) is no longer blind to the Polar/Wahoo/etc path.
+            straplog = { ble.externalLog(it) },
         )
     }
 }

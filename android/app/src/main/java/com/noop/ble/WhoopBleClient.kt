@@ -3336,6 +3336,14 @@ class WhoopBleClient(
         }
     }
 
+    /**
+     * Write a line into the SAME in-app strap-log ring buffer the user exports via [exportLogText],
+     * from an ISOLATED BLE source (e.g. [StandardHrSource]) that must never import or share state with
+     * this client. The coordinator injects this as a closure so generic-HR lifecycle lines land in the
+     * one log the user copies for a bug report. (Issue #421 — the generic-HR path used to be invisible.)
+     */
+    fun externalLog(s: String) { log(s) }
+
     /** Snapshot of the recent strap log, newest last, for the "Share strap log" diagnostics export. */
     fun exportLogText(): String = synchronized(logBuffer) { logBuffer.joinToString("\n") }
 }

@@ -131,8 +131,14 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
     // Keep the explicit calendar date visible alongside Today/Yesterday so the logical-day remap stays
     // honest — between midnight and 04:00 "Today" still points at the prior calendar date, and showing
     // that date makes it obvious which day's row is on screen (#144).
-    val dayLabel = remember(selectedDayOffset, selectedDay) {
-        val date = selectedDay.format(DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US))
+    val dayLabel = remember(selectedDayOffset, selectedDay, selectedDayKey) {
+        // Date the label by the row ACTUALLY on screen, not the raw logical date. `selectedDayKey` already
+        // follows the resolver's `today?.day` at offset 0, so when the resolver surfaces yesterday's
+        // complete row (today not scored yet) the date now reads that row's day — instead of stamping
+        // "Today · <today>" over yesterday's values, which disagreed with the Intelligence History row for
+        // the same data (#434). iOS/Mac already label by the shown row's day; this brings Android to parity.
+        val keyDate = runCatching { LocalDate.parse(selectedDayKey) }.getOrNull() ?: selectedDay
+        val date = keyDate.format(DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US))
         when (selectedDayOffset) {
             0 -> "Today · $date"
             1 -> "Yesterday · $date"

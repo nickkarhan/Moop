@@ -17,6 +17,23 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 4.0.3 — Date fixes, UI polish & clearer diagnostics
+
+- **Today's date now matches Intelligence History.** On Android, the Today/Recovery screen could label a
+  day with one date while showing the previous day's numbers (when this morning's recovery wasn't scored
+  yet), so it disagreed with the same day in Intelligence History. The Today date now names the row
+  actually on screen — matching Intelligence and the Mac/iPhone behaviour. Thanks @pikapik487 (#434).
+- **Clearer diagnostics for non-WHOOP heart-rate straps.** Connecting a generic strap (Polar, Wahoo,
+  Coospo…) now records every step of the Bluetooth handshake in the strap log — scan, connect, service
+  discovery, notification enable, first reading — so a "connected but no data" report can actually be
+  diagnosed instead of showing only WHOOP activity. Adds a single auto-retry on the common Android `133`
+  connect error. Thanks @pilleuspulcher-blip (#421).
+- **UI polish (Android):** the "vs previous month" comparison in Explore no longer clips; the bedtime/wake
+  time-scale label isn't cut off; the Insights day order is now Yesterday → Today → Tomorrow; and the
+  "Journal" heading stays on one line. Thanks @nhe (#443).
+
+---
+
 ## 4.0.2 — Switching between WHOOP straps now actually switches
 
 - **Multi-WHOOP: switching the active strap now moves the connection to it.** With more than one WHOOP

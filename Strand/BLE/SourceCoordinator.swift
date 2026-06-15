@@ -49,6 +49,12 @@ final class SourceCoordinator: ObservableObject {
     private let setWhoopActiveDeviceId: (String) -> Void
     /// The most-recently-connected WHOOP peripheral's uuid, from `BLEManager.$connectedPeripheralUUID`.
     private let connectedPeripheralUUID: AnyPublisher<String?, Never>
+    /// Diagnostic sink for the ISOLATED generic-HR source's connect lifecycle. Wired at the composition
+    /// root (`AppModel`) to the SAME strap log `BLEManager` writes to (`live.append(log:)`), so generic-HR
+    /// lines land in the one log the user exports (issue #421 — the Polar/Wahoo/Coospo/Garmin-HRM path was
+    /// previously invisible). Passed straight into `StandardHRSource`. Defaults to a no-op so existing
+    /// call sites (and tests) compile unchanged.
+    private let straplog: (String) -> Void
 
     // MARK: - State
 
@@ -77,6 +83,8 @@ final class SourceCoordinator: ObservableObject {
     ///   - setWhoopPreferredPeripheral: pin the WHOOP scan to one strap (nil = first found).
     ///   - setWhoopActiveDeviceId: re-point which id WHOOP samples store under (multi-WHOOP only).
     ///   - connectedPeripheralUUID: the BLE engine's last-connected WHOOP uuid, for identity adoption.
+    ///   - straplog: connect-lifecycle diagnostics for the isolated `StandardHRSource`, wired to the same
+    ///     strap log `BLEManager` uses (issue #421). Defaults to no-op so existing call sites compile.
     init(registry: DeviceRegistry,
          live: LiveState,
          storeHandle: @escaping () async -> WhoopStore?,
@@ -84,7 +92,8 @@ final class SourceCoordinator: ObservableObject {
          stopWhoop: @escaping () -> Void,
          setWhoopPreferredPeripheral: @escaping (String?) -> Void,
          setWhoopActiveDeviceId: @escaping (String) -> Void,
-         connectedPeripheralUUID: AnyPublisher<String?, Never>) {
+         connectedPeripheralUUID: AnyPublisher<String?, Never>,
+         straplog: @escaping (String) -> Void = { _ in }) {
         self.registry = registry
         self.live = live
         self.storeHandle = storeHandle
@@ -93,6 +102,7 @@ final class SourceCoordinator: ObservableObject {
         self.setWhoopPreferredPeripheral = setWhoopPreferredPeripheral
         self.setWhoopActiveDeviceId = setWhoopActiveDeviceId
         self.connectedPeripheralUUID = connectedPeripheralUUID
+        self.straplog = straplog
     }
 
     // MARK: - Wiring
@@ -191,7 +201,8 @@ final class SourceCoordinator: ObservableObject {
             deviceId: id,
             persist: { [storeHandle] streams in
                 Task { if let store = await storeHandle() { try? await store.insert(streams, deviceId: id) } }
-            })
+            },
+            log: straplog)   // generic-HR lifecycle → the SAME exported strap log (issue #421)
         source.scan()              // discover + auto-connect the chosen strap on its own central
         standardSource = source
         activeStrapId = id

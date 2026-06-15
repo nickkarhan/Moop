@@ -59,6 +59,11 @@ class StandardHrSource(
     /** Persist a batch under [deviceId] — wired to `repository.insert`. Called off the main looper is
      *  fine; the implementation hops to its own IO scope (see [SourceCoordinator]). */
     private val persist: (StreamBatch, String) -> Unit,
+    /** Diagnostic sink for the connect lifecycle. Wired (via [SourceCoordinator]) to the SAME in-app strap
+     *  log the user exports, so the generic-HR path is no longer invisible in a bug report (issue #421).
+     *  Every line is prefixed "HR-strap: " so it's distinguishable from WHOOP lines in the shared log.
+     *  Default no-op keeps existing call sites compiling and tests silent. */
+    private val log: (String) -> Unit = {},
 ) {
 
     /** A generic HR strap seen during a scan (UI affordance). */
@@ -86,6 +91,13 @@ class StandardHrSource(
     /** A device asked to connect before a scan result for it landed (connect-by-address path). */
     private var pendingConnectAddress: String? = null
 
+    /** The device of the in-flight connection, remembered so a status-133 disconnect can retry it. */
+    private var lastDevice: BluetoothDevice? = null
+    /** Guards the single status-133 (Android GATT_ERROR) auto-retry; reset on a successful connect. */
+    private var retried133 = false
+    /** Logs the FIRST HR sample of a connection only (not every notification); reset on stop/disconnect. */
+    private var loggedFirstHr = false
+
     /** All BLE work hops onto the main looper, matching the WHOOP client + CBCentralManager(queue:.main). */
     private val handler = Handler(Looper.getMainLooper())
 
@@ -106,8 +118,17 @@ class StandardHrSource(
         seen.clear()
         _discovered.value = emptyList()
         _scanning.value = true
-        val sc = scanner ?: run { _scanning.value = false; return }
-        if (adapter?.isEnabled != true) { _scanning.value = false; return }
+        log("HR-strap: scanning for standard heart-rate straps (0x180D)…")
+        val sc = scanner ?: run {
+            _scanning.value = false
+            log("HR-strap: no BLE scanner available — Bluetooth may be off or unsupported")
+            return
+        }
+        if (adapter?.isEnabled != true) {
+            _scanning.value = false
+            log("HR-strap: Bluetooth adapter is off — cannot scan")
+            return
+        }
         val filter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(HEART_RATE_SERVICE))
             .build()
@@ -134,6 +155,8 @@ class StandardHrSource(
     }
 
     private fun connectToDevice(device: BluetoothDevice) {
+        lastDevice = device   // remembered so a status-133 disconnect can auto-retry the same strap
+        log("HR-strap: connecting to ${device.address}")
         // Tear down any prior link first so we never run two GATTs for this source.
         gatt?.let { runCatching { it.disconnect(); it.close() } }
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -150,6 +173,7 @@ class StandardHrSource(
         pendingConnectAddress = null
         gatt?.let { runCatching { it.disconnect(); it.close() } }
         gatt = null
+        loggedFirstHr = false   // a later reconnect should log its first sample again
         flush()
     }
 
@@ -189,9 +213,10 @@ class StandardHrSource(
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device ?: return
             val address = device.address ?: return
-            seen[address] = device
+            val firstSight = seen.put(address, device) == null   // null → not seen before this scan
             val name = result.scanRecord?.deviceName ?: runCatching { device.name }.getOrNull()
                 ?: "Heart Rate Strap"
+            if (firstSight) log("HR-strap: found $name ($address) rssi ${result.rssi}")
             val strap = DiscoveredStrap(address = address, name = name, rssi = result.rssi)
             val list = _discovered.value.toMutableList()
             val i = list.indexOfFirst { it.address == address }
@@ -210,29 +235,88 @@ class StandardHrSource(
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> g.discoverServices()
+                BluetoothProfile.STATE_CONNECTED -> {
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        // CONNECTED reported but with a non-success status — unusual; surface it loudly.
+                        log("HR-strap: WARNING connected with non-success status=$status")
+                    }
+                    retried133 = false   // a real connection clears the one-shot 133 retry guard
+                    log("HR-strap: connected (status=$status) — discovering services")
+                    g.discoverServices()
+                }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    log("HR-strap: disconnected (status=$status)")
+                    loggedFirstHr = false   // a reconnect should log its first sample again
                     flush()
                     if (gatt === g) { runCatching { g.close() }; gatt = null }
+                    // Hardening: status 133 is Android's infamous generic GATT_ERROR on connect — almost
+                    // always transient. Auto-retry ONCE before telling the user to forget+re-pair.
+                    if (status == GATT_ERROR_133) {
+                        val device = lastDevice
+                        if (!retried133 && device != null) {
+                            retried133 = true
+                            log("HR-strap: connect error 133 — retrying once in 1s")
+                            handler.postDelayed({ connectToDevice(device) }, 1000)
+                        } else {
+                            log("HR-strap: still failing (133) — try forgetting the strap in " +
+                                "Android Settings → Bluetooth, then re-pair.")
+                        }
+                    }
                 }
             }
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) return
-            val svc = g.getService(HEART_RATE_SERVICE) ?: return
-            val ch = svc.getCharacteristic(HEART_RATE_CHAR) ?: return
+            log("HR-strap: services discovered (status=$status)")
+            // Keep the silent-return behaviour, but LOG the reason first so #421 isn't blind.
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                log("HR-strap: WARNING service discovery failed (status=$status) — giving up on this strap")
+                return
+            }
+            val svc = g.getService(HEART_RATE_SERVICE)
+            if (svc == null) {
+                log("HR-strap: 0x180D heart-rate service NOT FOUND — this strap may not expose standard HR")
+                return
+            }
+            log("HR-strap: 0x180D heart-rate service FOUND")
+            val ch = svc.getCharacteristic(HEART_RATE_CHAR)
+            if (ch == null) {
+                log("HR-strap: 0x2A37 measurement characteristic NOT FOUND — cannot read HR from this strap")
+                return
+            }
+            log("HR-strap: 0x2A37 measurement characteristic found")
             g.setCharacteristicNotification(ch, true)
             // Explicit CCCD write (CoreBluetooth's setNotifyValue does this implicitly).
-            val cccd = ch.getDescriptor(CCCD) ?: return
+            val cccd = ch.getDescriptor(CCCD)
+            if (cccd == null) {
+                log("HR-strap: WARNING 0x2A37 has no CCCD (0x2902) — cannot enable notifications")
+                return
+            }
+            log("HR-strap: enabling notifications on 0x2A37")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                // API 33+ returns an Int status code from the descriptor write request.
+                val rc = g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                log("HR-strap: CCCD write requested (rc=$rc)")
             } else {
                 @Suppress("DEPRECATION")
                 run {
                     cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    g.writeDescriptor(cccd)
+                    val ok = g.writeDescriptor(cccd)
+                    log("HR-strap: CCCD write requested (rc=$ok)")
                 }
+            }
+        }
+
+        override fun onDescriptorWrite(
+            g: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            status: Int,
+        ) {
+            if (descriptor.uuid != CCCD) return
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                log("HR-strap: notifications enabled (CCCD write status=$status)")
+            } else {
+                log("HR-strap: WARNING CCCD write FAILED (status=$status) — strap will send no HR data")
             }
         }
 
@@ -256,6 +340,11 @@ class StandardHrSource(
 
     private fun handleHr(data: ByteArray) {
         val parsed = StandardHeartRate.parse(data) ?: return
+        // Log the FIRST sample of a connection only — proof that data is flowing — never every sample.
+        if (!loggedFirstHr) {
+            loggedFirstHr = true
+            log("HR-strap: receiving data — first sample ${parsed.hr} bpm (rr beats: ${parsed.rr.size})")
+        }
         // Surface live HR on the main looper (the UI's StateFlow expects main-thread updates).
         handler.post { liveSink(parsed.hr, parsed.rr) }
         enqueue(parsed.hr, parsed.rr)
@@ -266,5 +355,9 @@ class StandardHrSource(
         val HEART_RATE_SERVICE: UUID = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb")
         val HEART_RATE_CHAR: UUID = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb")
         private val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+        /** Android's infamous generic GATT connect failure (`BluetoothGatt.GATT_ERROR`, not a public
+         *  constant) — almost always a transient stack/race issue. We auto-retry it once. */
+        private const val GATT_ERROR_133 = 133
     }
 }

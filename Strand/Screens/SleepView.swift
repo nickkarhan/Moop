@@ -86,7 +86,7 @@ struct SleepView: View {
             }
             // Animate the Rest hero gauge in once content resolves, and re-draw when the
             // sleep-performance score changes (a sync / re-import). macOS-13-safe single-param onChange.
-            .onChange(of: heroScoreFraction(resolved)) { newFraction in
+            .onChangeCompat(of: heroScoreFraction(resolved)) { newFraction in
                 withAnimation(.easeOut(duration: 0.9)) { heroFraction = newFraction }
             }
             .onAppear {
@@ -95,7 +95,7 @@ struct SleepView: View {
             // Persist the freshly-built model so subsequent renders with the same inputs hit
             // the cache. Writing State during body is not allowed, so commit it after layout;
             // `resolved` already drives THIS frame, so there is no flash and no extra rebuild.
-            .onChange(of: key) { newKey in
+            .onChangeCompat(of: key) { newKey in
                 modelKey = newKey
                 model = buildModel()
                 // New data invalidates a navigated offset — the same offset would silently
@@ -105,7 +105,7 @@ struct SleepView: View {
             }
             // The navigated night is decoded once per ◀/▶ press, never per body pass —
             // `decodedNight` JSON-decodes and body re-evaluates at 1Hz while HR streams. (#160)
-            .onChange(of: nightOffset) { newOffset in
+            .onChangeCompat(of: nightOffset) { newOffset in
                 navNight = newOffset == 0 ? nil : decodedNight(at: newOffset)
             }
             .onAppear {

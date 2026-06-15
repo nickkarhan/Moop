@@ -59,7 +59,7 @@ struct AppleHealthView: View {
     /// per render (every StatTile, every ChartCard, plus rangeNote/rangeSummary), and
     /// SwiftUI re-evaluates the body on hover / animation / 1Hz HR ticks. The inputs
     /// (`series`, `range`) only change on load or pill tap, so we compute once and
-    /// cache, recomputing via .onChange(of:) when an input actually changes.
+    /// cache, recomputing via .onChangeCompat(of:) when an input actually changes.
     @State private var windowCache: [String: ResolvedSeries] = [:]
 
     /// Memoized per-day rows trimmed to the active window. Read by both
@@ -202,7 +202,7 @@ struct AppleHealthView: View {
             }
         }
         .task(id: repo.refreshSeq) { await load() }
-        .onChange(of: range) { _ in rebuildWindowCache() }
+        .onChangeCompat(of: range) { _ in rebuildWindowCache() }
     }
 
     /// Rebuild the per-metric resolved-window cache from scratch. Called once after

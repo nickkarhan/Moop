@@ -254,7 +254,7 @@ struct TodayView: View {
         // allowed, so commit it after layout — the memoized accessors already return the
         // correct value for the change frame, so there is no flash and no missed update.
         // macOS-13-safe single-param onChange.
-        .onChange(of: todayInputKey) { newKey in
+        .onChangeCompat(of: todayInputKey) { newKey in
             derived = buildDerived()
             derivedKey = newKey
         }

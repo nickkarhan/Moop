@@ -291,7 +291,7 @@ public struct OverviewHRChart: View {
         }
         .chartOverlay { proxy in
             GeometryReader { geo in
-                let plot = geo[proxy.plotAreaFrame]
+                let plot = proxy.plotRectCompat(in: geo)
                 ZStack(alignment: .topLeading) {
                     markerLabels(proxy: proxy, plot: plot)
                     hoverLayer(proxy: proxy, plot: plot, container: geo.size)

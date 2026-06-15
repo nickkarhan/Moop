@@ -117,7 +117,7 @@ public struct RecoveryRing: View {
             // Reduce Motion: leave the bloom at its resting opacity instead of breathing.
             if !reduceMotion { bloomPulse = true }
         }
-        .onChange(of: score) { _ in
+        .onChangeCompat(of: score) { _ in
             withAnimation(StrandMotion.drawIn(reduced: reduceMotion)) { animatedFraction = fraction }
         }
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import StrandDesign
 
 /// Root — the sidebar shell, with the first-run onboarding/pairing wizard overlaid until complete,
 /// and a "What's New" changelog sheet shown automatically after an update.
@@ -43,7 +44,7 @@ struct ContentView: View {
         // combined terms+version update. Gate on terms being current, and re-check when they're
         // accepted (onAppear already fired before acceptance), so What's New shows right after.
         .onAppear { showWhatsNewIfDue() }
-        .onChange(of: acceptedTerms) { _ in showWhatsNewIfDue() }
+        .onChangeCompat(of: acceptedTerms) { _ in showWhatsNewIfDue() }
     }
 
     private func showWhatsNewIfDue() {

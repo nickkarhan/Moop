@@ -25,7 +25,7 @@ object AppChangelog {
      * Bump this when you add a release below. The "What's New" sheet shows automatically when the
      * stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
      */
-    const val CURRENT_VERSION = "3.1.0"
+    const val CURRENT_VERSION = "3.2.0"
 
     data class Release(
         val version: String,
@@ -36,6 +36,14 @@ object AppChangelog {
 
     /** Newest first. */
     val releases: List<Release> = listOf(
+        Release(
+            version = "3.2.0",
+            title = "Under-the-hood: current-API migration (no behaviour change)",
+            date = "June 2026",
+            items = listOf(
+                "Maintenance release, iPhone/Mac-focused: migrated the UI to the current iOS 17 / macOS 14 SwiftUI and Charts APIs behind a small compatibility shim (the Mac build still runs on macOS 13). No behaviour change. Android is versioned in lockstep with no Android-facing change. Thanks @vulnix0x4 (#331).",
+            ),
+        ),
         Release(
             version = "3.1.0",
             title = "Accuracy, reliability & accessibility — a big community-fixes wave",

@@ -160,7 +160,7 @@ private struct iOSRootView: View {
         // combined terms+version update. Gate on terms being current, and re-check when they're
         // accepted (onAppear already fired before acceptance), so What's New shows right after.
         .onAppear { showWhatsNewIfDue() }
-        .onChange(of: acceptedTerms) { _ in showWhatsNewIfDue() }
+        .onChange(of: acceptedTerms) { _, _ in showWhatsNewIfDue() }
     }
 
     private func showWhatsNewIfDue() {

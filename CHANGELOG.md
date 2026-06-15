@@ -17,6 +17,15 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 3.2.0 — Under-the-hood: current-API migration (no behaviour change)
+
+A maintenance release with no user-facing behaviour change.
+
+- **iPhone/Mac:** migrated the UI off two deprecated SwiftUI/Charts calls (`onChange(of:perform:)` and `plotAreaFrame`) to their current iOS 17 / macOS 14 equivalents, behind a small `onChangeCompat` / `plotRectCompat` shim so the Mac build still compiles and runs on **macOS 13**. A single-parameter shim keeps every call-site closure byte-for-byte unchanged (zero behaviour-change risk); the deprecation is acknowledged exactly once, in the shim. Also migrated the two call sites the original change missed. Thanks @vulnix0x4 (#331).
+- **Android:** versioned in lockstep; no Android-facing change.
+
+---
+
 ## 3.1.0 — Accuracy, reliability & accessibility: a big community-fixes wave
 
 A large wave of community-contributed fixes, each independently verified and reimplemented under the project. Credits inline.

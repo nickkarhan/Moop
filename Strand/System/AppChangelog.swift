@@ -7,7 +7,7 @@ enum AppChangelog {
 
     /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
     /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "3.1.0"
+    static let currentVersion = "3.2.0"
 
     struct Release: Identifiable {
         let version: String
@@ -19,6 +19,13 @@ enum AppChangelog {
 
     /// Newest first.
     static let releases: [Release] = [
+        Release(
+            version: "3.2.0",
+            title: "Under-the-hood: current-API migration (no behaviour change)",
+            date: "June 2026",
+            items: [
+                "Maintenance release: migrated the iPhone/Mac UI to the current iOS 17 / macOS 14 SwiftUI and Charts APIs (replacing two deprecated calls), behind a small compatibility shim so the Mac build still runs on macOS 13. Nothing changes for you — it's a cleaner, warning-free build that's better set up for future OS versions. Android is versioned in lockstep with no Android-facing change. Thanks @vulnix0x4 (#331).",
+            ]),
         Release(
             version: "3.1.0",
             title: "Accuracy, reliability & accessibility — a big community-fixes wave",

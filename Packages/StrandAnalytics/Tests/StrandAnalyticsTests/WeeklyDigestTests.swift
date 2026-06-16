@@ -191,6 +191,25 @@ final class WeeklyDigestTests: XCTestCase {
                       "Expected a steady-week line: \(d.focalPoints[0])")
     }
 
+    func testSparseWeekSaysTooEarlyNotSteady() {
+        // Current week has only 2 days, with a big raw drop vs a full previous week — the
+        // per-metric chips would show a large %, but 2 days can't anchor a week-over-week
+        // trend. The summary must defer ("too early") rather than claim a steady week with
+        // nothing moved, which would contradict the chips (#463).
+        var charge: [String: Double] = [:]
+        for d in 1...7 { charge[String(format: "2026-06-%02d", d)] = 70 }   // last week, full
+        charge["2026-06-08"] = 40                                            // this week, day 1
+        charge["2026-06-09"] = 40                                            // this week, day 2
+        let d = WeeklyDigestEngine.build(byMetric: [.charge: charge], anchorDay: "2026-06-09")
+        XCTAssertEqual(d.summary(.charge)!.thisWeek.n, 2)                    // sparse current week
+        XCTAssertEqual(d.focalPoints.count, 1)
+        let line = d.focalPoints[0]
+        XCTAssertTrue(line.contains("too early"), "Sparse week should defer the call: \(line)")
+        XCTAssertTrue(line.contains("2 days"), "Should name the day count: \(line)")
+        XCTAssertFalse(line.lowercased().contains("steady"),
+                       "Must NOT claim a steady week on 2 days: \(line)")
+    }
+
     func testFocalPointsCappedAtTwo() {
         // Several big movers + a non-trivial balance → still ≤ 2 lines.
         var charge: [String: Double] = [:], effort: [String: Double] = [:], hrv: [String: Double] = [:]

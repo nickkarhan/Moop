@@ -332,8 +332,18 @@ object WeeklyDigestEngine {
             lines.add(moverSentence(movers[1]))
         }
 
+        // Nothing cleared the mover bar. Distinguish a SPARSE current week (too few days to
+        // call a week-over-week trend — saying "nothing moved" there contradicts the per-metric
+        // chips, the #463 report) from a genuinely steady full week.
         if (lines.isEmpty()) {
-            if (consistencySD != null && consistencySD <= 6.0) {
+            val currentDays = summaries.maxOfOrNull { it.weekOverWeek.current.n } ?: 0
+            if (currentDays in 1 until MIN_DAYS_FOR_FOCUS) {
+                val dayWord = if (currentDays == 1) "day" else "days"
+                lines.add(
+                    "Only $currentDays $dayWord into this week so far — too early to " +
+                        "call a week-over-week trend yet.",
+                )
+            } else if (consistencySD != null && consistencySD <= 6.0) {
                 lines.add("A steady week — Rest held even (±${round1(consistencySD)} pts) and nothing moved much.")
             } else {
                 lines.add("A steady week — no metric moved meaningfully from last week.")

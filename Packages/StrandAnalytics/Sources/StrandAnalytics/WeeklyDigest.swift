@@ -319,9 +319,19 @@ public enum WeeklyDigestEngine {
             lines.append(moverSentence(movers[1]))
         }
 
-        // Nothing notable moved: a calm, honest line (optionally noting steadiness).
+        // Nothing cleared the mover bar. Distinguish two very different reasons:
+        //   • the current week is SPARSE (fewer than minDaysForFocus days in) — we simply
+        //     can't call a week-over-week trend yet, even though the per-metric chips may
+        //     show a big raw swing off 1–2 days. Saying "a steady week — nothing moved"
+        //     there flatly contradicts those chips (the #463 report). Be honest instead.
+        //   • the week has enough days and genuinely held even — the calm "steady" read.
         if lines.isEmpty {
-            if let sd = consistencySD, sd <= 6.0 {
+            let currentDays = summaries.map { $0.weekOverWeek.current.n }.max() ?? 0
+            if currentDays >= 1 && currentDays < minDaysForFocus {
+                let dayWord = currentDays == 1 ? "day" : "days"
+                lines.append("Only \(currentDays) \(dayWord) into this week so far — too early to "
+                    + "call a week-over-week trend yet.")
+            } else if let sd = consistencySD, sd <= 6.0 {
                 lines.append("A steady week — Rest held even (±\(round1(sd)) pts) and nothing moved much.")
             } else {
                 lines.append("A steady week — no metric moved meaningfully from last week.")

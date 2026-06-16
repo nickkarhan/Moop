@@ -17,6 +17,10 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## 4.2.10 — Week in Review is honest about a half-finished week (all platforms)
+
+- The **Week in Review** summary no longer says "a steady week — nothing moved" when you're only **a day or two into the week**. Early on, NOOP genuinely can't call a week-over-week trend — but the summary used to claim a steady week while the change chips right above it showed big percentage swings off those same one or two days, which read as a contradiction. Now a sparse current week says something like *"Only 2 days into this week so far — too early to call a week-over-week trend yet,"* matching what the chips can and can't tell you. A full week with genuinely flat metrics still reads as steady. Thanks **@pikapik487** (#463).
+
 ## 4.2.9 — Respiratory rate & skin temperature in the Trends report (all platforms)
 
 - The shareable Trends report (**Trends → Export**) now includes **Respiratory rate** and **Skin temperature** — two more rows measured from the strap, alongside HRV, Resting HR, Sleep, Recovery and Strain. Each shows its average, min/max with the day it fell on, daily trend and a per-day sparkline over the window you pick. Respiratory rate treats a **rising** trend as *"worth a look"* (a higher resting breathing rate can signal illness or strain — lower is the calmer read). **Skin temperature is shown as the signed deviation from your own baseline** (e.g. `+0.3 °C`), and deliberately carries **no good/bad verdict** — a move in either direction can matter, so the report states the direction and lets you read it. The "How to read this" legend now lists both as measured. Thanks @subscriptiondestroyer (#457). *(Workouts and stress in the report are still tracked as the next follow-ups.)*

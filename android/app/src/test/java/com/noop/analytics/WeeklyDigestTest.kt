@@ -190,6 +190,23 @@ class WeeklyDigestTest {
         assertTrue(d.focalPoints[0], d.focalPoints[0].lowercase().contains("steady"))
     }
 
+    @Test fun sparseWeekSaysTooEarlyNotSteady() {
+        // Current week has only 2 days, with a big raw drop vs a full previous week — the
+        // per-metric chips would show a large %, but 2 days can't anchor a week-over-week
+        // trend. The summary must defer ("too early") rather than claim a steady week (#463).
+        val charge = HashMap<String, Double>()
+        for (day in 1..7) charge[fmt(day)] = 70.0   // last week, full
+        charge[fmt(8)] = 40.0                        // this week, day 1
+        charge[fmt(9)] = 40.0                        // this week, day 2
+        val d = WeeklyDigestEngine.build(mapOf(WeeklyMetric.CHARGE to charge), "2026-06-09")
+        assertEquals(2, d.summary(WeeklyMetric.CHARGE)!!.thisWeek.n)   // sparse current week
+        assertEquals(1, d.focalPoints.size)
+        val line = d.focalPoints[0]
+        assertTrue(line, line.contains("too early"))
+        assertTrue(line, line.contains("2 days"))
+        assertFalse(line, line.lowercase().contains("steady"))
+    }
+
     @Test fun focalPointsCappedAtTwo() {
         val charge = HashMap<String, Double>(); val effort = HashMap<String, Double>(); val hrv = HashMap<String, Double>()
         for (day in 8..14) { charge[fmt(day)] = 85.0; effort[fmt(day)] = 30.0; hrv[fmt(day)] = 75.0 }
